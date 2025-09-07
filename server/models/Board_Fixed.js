@@ -97,7 +97,7 @@ BoardSchema.index({ 'collaborators.user': 1 });
 
 // Method to generate invite URL
 BoardSchema.methods.getInviteUrl = function(baseUrl = 'http://localhost:3000') {
-  return `${baseUrl}/invite/${this.boardId}`;
+  return `${baseUrl}/board/${this.boardId}`;
 };
 
 // Method to check user permissions

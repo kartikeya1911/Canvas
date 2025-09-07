@@ -15,18 +15,40 @@ const whiteboardEvents = (io) => {
     // Join a board room
     socket.on('join-board', async (boardId) => {
       try {
-        // Verify user has access to this board
-        const board = await Board.findById(boardId);
+        console.log('🔗 User attempting to join board:', boardId);
+        
+        let board;
+        
+        // Check if it's a MongoDB ObjectId or UUID
+        const isObjectId = /^[0-9a-fA-F]{24}$/.test(boardId);
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(boardId);
+        
+        if (isObjectId) {
+          console.log('📌 Searching by MongoDB ObjectId');
+          board = await Board.findById(boardId);
+        } else if (isUUID) {
+          console.log('🔗 Searching by boardId (UUID)');
+          board = await Board.findOne({ boardId: boardId });
+        } else {
+          console.log('❌ Invalid board ID format');
+          socket.emit('error', { message: 'Invalid board ID format' });
+          return;
+        }
+        
         if (!board) {
+          console.log('❌ Board not found');
           socket.emit('error', { message: 'Board not found' });
           return;
         }
+
+        console.log('✅ Board found:', board.title);
 
         const hasAccess = board.owner.toString() === socket.user._id.toString() ||
                          board.collaborators.some(collab => collab.user.toString() === socket.user._id.toString()) ||
                          board.isPublic;
 
         if (!hasAccess) {
+          console.log('🚫 Access denied for user:', socket.user.name);
           socket.emit('error', { message: 'Access denied to this board' });
           return;
         }

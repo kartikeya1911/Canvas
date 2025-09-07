@@ -64,9 +64,12 @@ const registerUser = async (req, res) => {
 const loginUser = async (req, res) => {
   try {
     const { email, password } = req.body;
+    
+    console.log('🔐 Login attempt for email:', email);
 
     // Validation
     if (!email || !password) {
+      console.log('❌ Missing email or password');
       return res.status(400).json({
         message: 'Please provide email and password'
       });
@@ -74,15 +77,22 @@ const loginUser = async (req, res) => {
 
     // Check for user and include password
     const user = await User.findOne({ email }).select('+password');
+    console.log('🔍 User lookup result:', user ? 'Found' : 'Not found');
+    
     if (!user) {
+      console.log('❌ User not found for email:', email);
       return res.status(401).json({
         message: 'Invalid email or password'
       });
     }
 
     // Check password
+    console.log('🔑 Checking password...');
     const isPasswordValid = await user.matchPassword(password);
+    console.log('🔑 Password valid:', isPasswordValid);
+    
     if (!isPasswordValid) {
+      console.log('❌ Invalid password for user:', email);
       return res.status(401).json({
         message: 'Invalid email or password'
       });
@@ -93,6 +103,7 @@ const loginUser = async (req, res) => {
     await user.save();
 
     const token = generateToken(user._id);
+    console.log('✅ Login successful for user:', user.name);
 
     res.json({
       success: true,

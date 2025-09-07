@@ -115,6 +115,15 @@ const Board = () => {
   const [showShapesDrawer, setShowShapesDrawer] = useState(false);
   const [showPenDrawer, setShowPenDrawer] = useState(false);
   const [showEraserDrawer, setShowEraserDrawer] = useState(false);
+  
+  // Share state
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState("");
+  const [isGeneratingLink, setIsGeneratingLink] = useState(false);
+  const [shareSettings, setShareSettings] = useState({
+    allowAnonymous: true,
+    defaultPermission: 'editor'
+  });
 
   const stageRef = useRef();
   const [isPanning, setIsPanning] = useState(false);
@@ -968,6 +977,38 @@ const Board = () => {
     }
   };
 
+  // Share functionality
+  const handleGenerateInviteLink = async () => {
+    try {
+      setIsGeneratingLink(true);
+      const response = await boardService.generateInviteLink(boardId, shareSettings);
+      setInviteUrl(response.inviteUrl);
+      setError("");
+    } catch (error) {
+      console.error('Error generating invite link:', error);
+      setError('Failed to generate invite link. Please try again.');
+    } finally {
+      setIsGeneratingLink(false);
+    }
+  };
+
+  const handleCopyInviteLink = async () => {
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      // You could add a toast notification here
+      console.log('Invite link copied to clipboard');
+    } catch (error) {
+      console.error('Failed to copy to clipboard:', error);
+    }
+  };
+
+  // Generate invite link when modal opens
+  useEffect(() => {
+    if (showShareModal && !inviteUrl) {
+      handleGenerateInviteLink();
+    }
+  }, [showShareModal]);
+
   // Loading state
   if (loading) {
     return (
@@ -1492,6 +1533,19 @@ const Board = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </motion.button>
+
+            {/* Share button */}
+            <motion.button
+              onClick={() => setShowShareModal(true)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 hover:${colors.bg.tertiary} transition-all duration-200 border ${colors.border.primary}`}
+              title="Share Board"
+            >
+              <svg className={`w-6 h-6 ${colors.text.primary}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
+              </svg>
+            </motion.button>
           </div>
         </motion.div>
 
@@ -1914,6 +1968,110 @@ const Board = () => {
           {error}
         </div>
       )}
+
+      {/* Share Modal */}
+      <AnimatePresence>
+        {showShareModal && (
+          <motion.div
+            className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <motion.div
+              className={`${colors.bg.card} rounded-2xl shadow-xl max-w-md w-full mx-4 max-h-96 overflow-y-auto`}
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+            >
+              <div className="p-6">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className={`text-xl font-semibold ${colors.text.primary}`}>
+                    Share Board
+                  </h3>
+                  <button
+                    onClick={() => setShowShareModal(false)}
+                    className={`${colors.text.secondary} hover:${colors.text.primary}`}
+                  >
+                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+
+                <div className="space-y-4">
+                  {/* Invite Link Section */}
+                  <div>
+                    <label className={`block text-sm font-medium ${colors.text.primary} mb-2`}>
+                      Invite Link
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={inviteUrl}
+                        readOnly
+                        className={`flex-1 px-3 py-2 border ${colors.border.primary} rounded-lg ${colors.bg.primary} ${colors.text.primary} text-sm`}
+                        placeholder={isGeneratingLink ? "Generating link..." : "Invite link will appear here"}
+                      />
+                      <button
+                        onClick={handleCopyInviteLink}
+                        disabled={!inviteUrl}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                        title="Copy to clipboard"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Share Settings */}
+                  <div className="space-y-3">
+                    <h4 className={`text-sm font-medium ${colors.text.primary}`}>Share Settings</h4>
+                    
+                    {/* Anonymous Access */}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <label className={`text-sm ${colors.text.primary}`}>Allow anonymous access</label>
+                        <p className={`text-xs ${colors.text.secondary}`}>Let anyone with the link join without signing in</p>
+                      </div>
+                      <input
+                        type="checkbox"
+                        checked={shareSettings.allowAnonymous}
+                        onChange={(e) => setShareSettings(prev => ({...prev, allowAnonymous: e.target.checked}))}
+                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
+                      />
+                    </div>
+
+                    {/* Default Permission */}
+                    <div>
+                      <label className={`block text-sm ${colors.text.primary} mb-1`}>Default permission</label>
+                      <select
+                        value={shareSettings.defaultPermission}
+                        onChange={(e) => setShareSettings(prev => ({...prev, defaultPermission: e.target.value}))}
+                        className={`w-full px-3 py-2 border ${colors.border.primary} rounded-lg ${colors.bg.primary} ${colors.text.primary} text-sm`}
+                      >
+                        <option value="viewer">Viewer (can only view)</option>
+                        <option value="editor">Editor (can edit)</option>
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Generate New Link Button */}
+                  <button
+                    onClick={handleGenerateInviteLink}
+                    disabled={isGeneratingLink}
+                    className="w-full bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  >
+                    {isGeneratingLink ? "Generating..." : "Update Link"}
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

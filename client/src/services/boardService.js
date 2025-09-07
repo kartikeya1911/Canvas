@@ -69,5 +69,35 @@ export const boardService = {
     } catch (error) {
       throw error.response?.data || error;
     }
+  },
+
+  // Generate invite link
+  generateInviteLink: async (boardId, settings = {}) => {
+    try {
+      const response = await api.post(`/boards/${boardId}/invite`, settings);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  // Get board by invite
+  getBoardByInvite: async (boardId) => {
+    try {
+      const response = await api.get(`/boards/invite/${boardId}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
+  },
+
+  // Join board via invite
+  joinBoardViaInvite: async (boardId) => {
+    try {
+      const response = await api.post(`/boards/join/${boardId}`);
+      return response.data;
+    } catch (error) {
+      throw error.response?.data || error;
+    }
   }
 };

@@ -6,19 +6,23 @@ const User = require('../models/User');
 // @access  Private
 const createBoard = async (req, res) => {
   try {
-    const { title, description, isPublic } = req.body;
+    const { title, description, isPublic, allowAnonymous } = req.body;
 
     const board = await Board.create({
       title: title || 'Untitled Board',
       description: description || '',
       owner: req.user.id,
       isPublic: isPublic || false,
+      allowAnonymous: allowAnonymous !== undefined ? allowAnonymous : true,
       data: {
         lines: [],
         rectangles: [],
         textNodes: [],
         circles: [],
-        arrows: []
+        arrows: [],
+        stickyNotes: [],
+        background: '#ffffff',
+        gridEnabled: false
       }
     });
 
@@ -34,7 +38,10 @@ const createBoard = async (req, res) => {
     res.status(201).json({
       success: true,
       message: 'Board created successfully',
-      board: populatedBoard
+      board: {
+        ...populatedBoard.toObject(),
+        inviteUrl: populatedBoard.getInviteUrl()
+      }
     });
   } catch (error) {
     console.error('Create board error:', error);
@@ -50,6 +57,8 @@ const createBoard = async (req, res) => {
 // @access  Private
 const getBoards = async (req, res) => {
   try {
+    console.log('📋 Getting boards for user:', req.user.id, req.user.name);
+    
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -75,6 +84,8 @@ const getBoards = async (req, res) => {
       ]
     });
 
+    console.log(`✅ Found ${boards.length} boards for user ${req.user.name}`);
+
     res.json({
       success: true,
       boards,
@@ -85,7 +96,7 @@ const getBoards = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get boards error:', error);
+    console.error('❌ Get boards error:', error);
     res.status(500).json({
       message: 'Server error getting boards',
       error: error.message
@@ -98,13 +109,36 @@ const getBoards = async (req, res) => {
 // @access  Private
 const getBoard = async (req, res) => {
   try {
-    const board = await Board.findById(req.params.id)
-      .populate('owner', 'name email')
-      .populate('collaborators.user', 'name email');
+    let board;
+    const { id } = req.params;
+    
+    console.log('🔍 Getting board with ID:', id);
+    
+    // Check if it's a MongoDB ObjectId or UUID
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    
+    if (isObjectId) {
+      console.log('📌 Searching by MongoDB ObjectId');
+      board = await Board.findById(id)
+        .populate('owner', 'name email')
+        .populate('collaborators.user', 'name email');
+    } else if (isUUID) {
+      console.log('🔗 Searching by boardId (UUID)');
+      board = await Board.findOne({ boardId: id })
+        .populate('owner', 'name email')
+        .populate('collaborators.user', 'name email');
+    } else {
+      console.log('❌ Invalid ID format');
+      return res.status(400).json({ message: 'Invalid board ID format' });
+    }
 
     if (!board) {
+      console.log('❌ Board not found');
       return res.status(404).json({ message: 'Board not found' });
     }
+
+    console.log('✅ Board found:', board.title);
 
     // Check if user has access to this board
     const hasAccess = board.owner._id.toString() === req.user.id ||
@@ -112,9 +146,12 @@ const getBoard = async (req, res) => {
                      board.isPublic;
 
     if (!hasAccess) {
+      console.log('🚫 Access denied for user:', req.user.name);
       return res.status(403).json({ message: 'Access denied to this board' });
     }
 
+    console.log('✅ Access granted to user:', req.user.name);
+    
     res.json({
       success: true,
       board
@@ -315,6 +352,246 @@ const removeCollaborator = async (req, res) => {
   }
 };
 
+// @desc    Get board by boardId (for invite links)
+// @route   GET /api/boards/invite/:boardId
+// @access  Public
+const getBoardByInvite = async (req, res) => {
+  try {
+    const { boardId } = req.params;
+    
+    console.log('🔗 Getting board by invite with boardId:', boardId);
+    
+    const board = await Board.findOne({ boardId })
+      .populate('owner', 'name email')
+      .populate('collaborators.user', 'name email');
+
+    console.log('🔍 Board lookup result:', board ? `Found: ${board.title}` : 'Not found');
+
+    if (!board) {
+      console.log('❌ Board not found for boardId:', boardId);
+      return res.status(404).json({ 
+        success: false,
+        message: 'Board not found or invite link is invalid' 
+      });
+    }
+
+    console.log('✅ Board found:', board.title, 'allowAnonymous:', board.allowAnonymous);
+
+    // Check if board allows anonymous access
+    if (!board.allowAnonymous && !req.user) {
+      console.log('🔒 Board requires authentication, user not authenticated');
+      return res.status(401).json({
+        success: false,
+        message: 'This board requires authentication to access'
+      });
+    }
+
+    // If user is authenticated, check permissions
+    if (req.user) {
+      console.log('👤 User authenticated:', req.user.name);
+      const hasPermission = board.hasPermission(req.user.id);
+      console.log('🔐 User permission check:', hasPermission);
+      
+      if (!hasPermission && !board.isPublic && !board.allowAnonymous) {
+        console.log('🚫 User does not have permission');
+        return res.status(403).json({
+          success: false,
+          message: 'You do not have permission to access this board'
+        });
+      }
+    } else {
+      console.log('👻 Anonymous access');
+    }
+
+    console.log('✅ Access granted, returning board info');
+    
+    res.json({
+      success: true,
+      board: {
+        ...board.toObject(),
+        inviteUrl: board.getInviteUrl()
+      }
+    });
+  } catch (error) {
+    console.error('Get board by invite error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error accessing board',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Generate new invite link for board
+// @route   POST /api/boards/:id/invite
+// @access  Private (Owner only)
+const generateInviteLink = async (req, res) => {
+  try {
+    let board;
+    const { id } = req.params;
+    
+    // Check if it's a MongoDB ObjectId or UUID
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    
+    if (isObjectId) {
+      board = await Board.findById(id);
+    } else if (isUUID) {
+      board = await Board.findOne({ boardId: id });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid board ID format'
+      });
+    }
+
+    if (!board) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Board not found' 
+      });
+    }
+
+    // Only owner can generate invite links
+    if (board.owner.toString() !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        message: 'Only board owner can generate invite links'
+      });
+    }
+
+    // Ensure board has a boardId (for existing boards without one)
+    if (!board.boardId) {
+      board.boardId = require('crypto').randomUUID();
+    }
+
+    // Update board settings if provided
+    const { allowAnonymous, defaultPermission } = req.body;
+    if (allowAnonymous !== undefined) {
+      board.allowAnonymous = allowAnonymous;
+    }
+    if (defaultPermission && ['viewer', 'editor'].includes(defaultPermission)) {
+      board.defaultPermission = defaultPermission;
+    }
+
+    await board.save();
+
+    res.json({
+      success: true,
+      inviteUrl: board.getInviteUrl(),
+      boardId: board.boardId,
+      settings: {
+        allowAnonymous: board.allowAnonymous,
+        defaultPermission: board.defaultPermission
+      }
+    });
+  } catch (error) {
+    console.error('Generate invite link error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error generating invite link',
+      error: error.message
+    });
+  }
+};
+
+// @desc    Join board via invite link
+// @route   POST /api/boards/join/:boardId
+// @access  Public/Private
+const joinBoardViaInvite = async (req, res) => {
+  try {
+    const { boardId } = req.params;
+    
+    const board = await Board.findOne({ boardId })
+      .populate('owner', 'name email')
+      .populate('collaborators.user', 'name email');
+
+    if (!board) {
+      return res.status(404).json({
+        success: false,
+        message: 'Board not found or invite link is invalid'
+      });
+    }
+
+    // If user is not authenticated and board doesn't allow anonymous access
+    if (!req.user && !board.allowAnonymous) {
+      return res.status(401).json({
+        success: false,
+        message: 'Authentication required to join this board'
+      });
+    }
+
+    // If user is authenticated
+    if (req.user) {
+      // Check if user is already owner
+      if (board.owner._id.toString() === req.user.id) {
+        return res.json({
+          success: true,
+          message: 'You are the owner of this board',
+          board: {
+            ...board.toObject(),
+            inviteUrl: board.getInviteUrl()
+          }
+        });
+      }
+
+      // Check if user is already a collaborator
+      const existingCollaborator = board.collaborators.find(
+        collab => collab.user._id.toString() === req.user.id
+      );
+
+      if (!existingCollaborator) {
+        // Add user as collaborator
+        board.collaborators.push({
+          user: req.user.id,
+          role: board.defaultPermission,
+          inviteUsed: true,
+          joinedAt: new Date()
+        });
+
+        await board.save();
+        
+        // Add board to user's boards
+        await User.findByIdAndUpdate(req.user.id, {
+          $addToSet: { boards: board._id }
+        });
+      }
+
+      // Populate the updated board
+      const updatedBoard = await Board.findById(board._id)
+        .populate('owner', 'name email')
+        .populate('collaborators.user', 'name email');
+
+      res.json({
+        success: true,
+        message: existingCollaborator ? 'Already a member of this board' : 'Successfully joined the board',
+        board: {
+          ...updatedBoard.toObject(),
+          inviteUrl: updatedBoard.getInviteUrl()
+        }
+      });
+    } else {
+      // Anonymous access
+      res.json({
+        success: true,
+        message: 'Anonymous access granted',
+        board: {
+          ...board.toObject(),
+          inviteUrl: board.getInviteUrl()
+        },
+        anonymous: true
+      });
+    }
+  } catch (error) {
+    console.error('Join board via invite error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error joining board',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   createBoard,
   getBoards,
@@ -322,5 +599,8 @@ module.exports = {
   updateBoard,
   deleteBoard,
   addCollaborator,
-  removeCollaborator
+  removeCollaborator,
+  getBoardByInvite,
+  generateInviteLink,
+  joinBoardViaInvite
 };

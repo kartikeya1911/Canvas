@@ -1,4 +1,5 @@
 const Board = require('../models/Board');
+const mongoose = require('mongoose');
 const { socketAuth } = require('../middleware/authMiddleware');
 
 const whiteboardEvents = (io) => {
@@ -90,7 +91,9 @@ const whiteboardEvents = (io) => {
         });
 
         // Send updated user list to all users in the board
-        io.to(boardId).emit('users-update', Array.from(boardUsers.get(boardId).values()));
+        const currentUsers = Array.from(boardUsers.get(boardId).values());
+        io.to(boardId).emit('users-update', currentUsers);
+        console.log(`👥 Users in board ${boardId}:`, currentUsers.map(u => u.name));
 
         console.log(`👤 User ${socket.user.name} joined board ${boardId}`);
       } catch (error) {
@@ -102,6 +105,7 @@ const whiteboardEvents = (io) => {
     // Handle drawing events
     socket.on('drawing', (data) => {
       if (socket.currentBoard) {
+        console.log(`🎨 Drawing event from ${socket.user.name} on board ${socket.currentBoard}`);
         // Broadcast to all other users in the board
         socket.to(socket.currentBoard).emit('drawing', {
           ...data,
@@ -109,6 +113,8 @@ const whiteboardEvents = (io) => {
           userName: socket.user.name,
           timestamp: new Date()
         });
+      } else {
+        console.log(`❌ Drawing event from ${socket.user.name} but no currentBoard set`);
       }
     });
 
@@ -116,8 +122,14 @@ const whiteboardEvents = (io) => {
     socket.on('line-draw', async (data) => {
       if (socket.currentBoard) {
         try {
-          // Update board in database
-          const board = await Board.findById(socket.currentBoard);
+          // Find board by either ObjectId or UUID
+          let board = null;
+          if (mongoose.Types.ObjectId.isValid(socket.currentBoard)) {
+            board = await Board.findById(socket.currentBoard);
+          } else {
+            board = await Board.findOne({ boardId: socket.currentBoard });
+          }
+          
           if (board) {
             if (!board.data.lines) board.data.lines = [];
             board.data.lines.push({
@@ -126,9 +138,10 @@ const whiteboardEvents = (io) => {
               timestamp: new Date()
             });
             await board.save();
+            console.log(`✏️ Line drawn on board ${socket.currentBoard} by ${socket.user.name}`);
           }
 
-          // Broadcast to other users
+          // Broadcast to other users in the same room
           socket.to(socket.currentBoard).emit('line-draw', {
             ...data,
             userId: socket.user._id,
@@ -144,7 +157,14 @@ const whiteboardEvents = (io) => {
     socket.on('rect-draw', async (data) => {
       if (socket.currentBoard) {
         try {
-          const board = await Board.findById(socket.currentBoard);
+          // Find board by either ObjectId or UUID
+          let board = null;
+          if (mongoose.Types.ObjectId.isValid(socket.currentBoard)) {
+            board = await Board.findById(socket.currentBoard);
+          } else {
+            board = await Board.findOne({ boardId: socket.currentBoard });
+          }
+          
           if (board) {
             if (!board.data.rectangles) board.data.rectangles = [];
             board.data.rectangles.push({
@@ -153,6 +173,7 @@ const whiteboardEvents = (io) => {
               timestamp: new Date()
             });
             await board.save();
+            console.log(`📱 Rectangle drawn on board ${socket.currentBoard} by ${socket.user.name}`);
           }
 
           socket.to(socket.currentBoard).emit('rect-draw', {
@@ -349,6 +370,36 @@ const whiteboardEvents = (io) => {
         };
 
         io.to(socket.currentBoard).emit('chat-message', messageData);
+      }
+    });
+
+    // Handle leaving board
+    socket.on('leave-board', () => {
+      if (socket.currentBoard) {
+        console.log(`🚪 User ${socket.user.name} leaving board ${socket.currentBoard}`);
+        
+        // Remove user from board users
+        removeUserFromBoard(socket.currentBoard, socket.id);
+        
+        // Notify other users
+        socket.to(socket.currentBoard).emit('user-left', {
+          user: {
+            id: socket.user._id,
+            name: socket.user.name,
+            email: socket.user.email
+          }
+        });
+
+        // Send updated user list to remaining users
+        if (boardUsers.has(socket.currentBoard)) {
+          io.to(socket.currentBoard).emit('users-update', 
+            Array.from(boardUsers.get(socket.currentBoard).values())
+          );
+        }
+
+        // Leave the room
+        socket.leave(socket.currentBoard);
+        socket.currentBoard = null;
       }
     });
 

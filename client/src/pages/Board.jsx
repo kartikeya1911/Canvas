@@ -85,6 +85,23 @@ const Board = () => {
   const { isAuthenticated, token } = useAuth();
   const { colors, shadows, isDark } = useTheme();
 
+  // Debug logging for boardId
+  useEffect(() => {
+    console.log('🆔 Board ID from params:', boardId);
+    if (!boardId) {
+      console.warn('⚠️ No boardId found in URL parameters');
+    }
+  }, [boardId]);
+
+  // Redirect to dashboard if no boardId is provided
+  useEffect(() => {
+    if (isAuthenticated && boardId === undefined) {
+      console.log('🏠 No board ID, redirecting to dashboard...');
+      // You might want to add redirect logic here if needed
+      // navigate('/dashboard');
+    }
+  }, [boardId, isAuthenticated]);
+
   // Canvas state
   const [tool, setTool] = useState(TOOL_PENCIL);
   const [lines, setLines] = useState([]);
@@ -979,6 +996,12 @@ const Board = () => {
 
   // Share functionality
   const handleGenerateInviteLink = async () => {
+    if (!boardId) {
+      console.error('No boardId available for generating invite link');
+      setError('Board not loaded. Please wait and try again.');
+      return;
+    }
+
     try {
       setIsGeneratingLink(true);
       const response = await boardService.generateInviteLink(boardId, shareSettings);
@@ -1004,10 +1027,10 @@ const Board = () => {
 
   // Generate invite link when modal opens
   useEffect(() => {
-    if (showShareModal && !inviteUrl) {
+    if (showShareModal && !inviteUrl && boardId) {
       handleGenerateInviteLink();
     }
-  }, [showShareModal]);
+  }, [showShareModal, boardId]);
 
   // Loading state
   if (loading) {
@@ -1041,6 +1064,19 @@ const Board = () => {
               Try Again
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while boardId is being parsed from URL
+  if (!boardId && isAuthenticated) {
+    return (
+      <div className={`h-screen flex items-center justify-center ${colors.bg.secondary}`}>
+        <div className={`${colors.bg.card} rounded-lg p-8 ${shadows.card} text-center`}>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <h2 className={`text-lg font-semibold ${colors.text.primary} mb-2`}>Loading Board...</h2>
+          <p className={`${colors.text.secondary}`}>Please wait while we load your board</p>
         </div>
       </div>
     );
@@ -1536,11 +1572,14 @@ const Board = () => {
 
             {/* Share button */}
             <motion.button
-              onClick={() => setShowShareModal(true)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 hover:${colors.bg.tertiary} transition-all duration-200 border ${colors.border.primary}`}
-              title="Share Board"
+              onClick={() => boardId && setShowShareModal(true)}
+              whileHover={boardId ? { scale: 1.05 } : {}}
+              whileTap={boardId ? { scale: 0.95 } : {}}
+              disabled={!boardId}
+              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 ${
+                boardId ? `hover:${colors.bg.tertiary} cursor-pointer` : 'opacity-50 cursor-not-allowed'
+              } transition-all duration-200 border ${colors.border.primary}`}
+              title={boardId ? "Share Board" : "Board not loaded"}
             >
               <svg className={`w-6 h-6 ${colors.text.primary}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />

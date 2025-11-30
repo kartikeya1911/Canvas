@@ -29,29 +29,46 @@ const getLocalIPAddress = () => {
 const LOCAL_IP = getLocalIPAddress();
 const CLIENT_PORT = 3000;
 
-// Socket.IO setup with CORS - allow both localhost and network IP
+// Socket.IO setup with CORS - allow both localhost, network IP, and Vercel
 const allowedOrigins = [
   "http://localhost:3000",
   `http://${LOCAL_IP}:${CLIENT_PORT}`,
-  process.env.CLIENT_URL
+  process.env.CLIENT_URL,
+  "https://colabcanvas.vercel.app",
+  "https://colabcanvas-c81bl9alj-jainkartikeya9-gmailcoms-projects.vercel.app"
 ].filter(Boolean);
 
+// CORS origin checker function to allow all Vercel preview URLs
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Check if origin matches Vercel preview URL pattern
+    if (origin.match(/https:\/\/colabcanvas.*\.vercel\.app$/)) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  credentials: true
+};
+
 const io = socketIo(server, {
-  cors: {
-    origin: allowedOrigins,
-    methods: ["GET", "POST"],
-    credentials: true
-  }
+  cors: corsOptions
 });
 
 // Connect to MongoDB
 connectDB();
 
 // Middleware
-app.use(cors({
-  origin: allowedOrigins,
-  credentials: true
-}));
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Routes

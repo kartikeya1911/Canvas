@@ -90,8 +90,13 @@ app.get('/api/health', (req, res) => {
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0'; // Listen on all network interfaces
 
-// Store the dynamic client URL globally for use in controllers
-global.CLIENT_URL = `http://${LOCAL_IP}:${CLIENT_PORT}`;
+// Store the client URL globally for use in controllers
+// In production, use environment variable, otherwise use local IP
+if (process.env.NODE_ENV === 'production' && process.env.CLIENT_URL) {
+  global.CLIENT_URL = process.env.CLIENT_URL;
+} else {
+  global.CLIENT_URL = `http://${LOCAL_IP}:${CLIENT_PORT}`;
+}
 
 server.listen(PORT, HOST, () => {
   console.log('\n╔═══════════════════════════════════════════════════════════╗');

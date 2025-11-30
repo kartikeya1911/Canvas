@@ -90,14 +90,15 @@ const BoardSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Indexes for performance
-BoardSchema.index({ boardId: 1 });
+// Indexes for performance (boardId already has unique index from schema)
 BoardSchema.index({ owner: 1 });
 BoardSchema.index({ 'collaborators.user': 1 });
 
 // Method to generate invite URL
-BoardSchema.methods.getInviteUrl = function(baseUrl = 'http://localhost:3000') {
-  return `${baseUrl}/invite/${this.boardId}`;
+BoardSchema.methods.getInviteUrl = function(baseUrl) {
+  // Use provided baseUrl, global CLIENT_URL (auto-detected IP), or fallback to localhost
+  const url = baseUrl || global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+  return `${url}/invite/${this.boardId}`;
 };
 
 // Method to check user permissions

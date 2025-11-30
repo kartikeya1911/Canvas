@@ -6,6 +6,7 @@ import { useTheme } from "../contexts/ThemeContext";
 import { boardService } from "../services/boardService";
 import socketService from "../services/socketService";
 import Navbar from "../components/Navbar";
+import OnlineMembers from "../components/OnlineMembers";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TOOL_PENCIL = "pencil";
@@ -82,7 +83,7 @@ const ActionButton = ({ title, onClick, icon, className = "" }) => {
 
 const Board = () => {
   const { boardId } = useParams();
-  const { isAuthenticated, token } = useAuth();
+  const { isAuthenticated, token, user } = useAuth();
   const { colors, shadows, isDark } = useTheme();
 
   // Debug logging for boardId
@@ -146,6 +147,7 @@ const Board = () => {
   const [isPanning, setIsPanning] = useState(false);
   const socketInitialized = useRef(false);
   const boardJoined = useRef(false);
+  const lastTouchDistance = useRef(null);
 
   // Text input
   const [showTextInput, setShowTextInput] = useState(false);
@@ -189,6 +191,7 @@ const Board = () => {
 
       // Socket event listeners
       socketService.on('board-state', (data) => {
+        console.log('📊 Received board state:', data);
         if (data.board) {
           setLines(data.board.lines || []);
           setRects(data.board.rectangles || []);
@@ -196,21 +199,29 @@ const Board = () => {
           setArrows(data.board.arrows || []);
           setTextNodes(data.board.textNodes || []);
         }
-        if (data.users) {
+        if (data.users && Array.isArray(data.users)) {
+          console.log('👥 Initial users from board-state:', data.users);
           setConnectedUsers(data.users);
         }
       });
 
       socketService.on('users-update', (users) => {
-        setConnectedUsers(users);
+        console.log('🔄 Users update received:', users);
+        if (Array.isArray(users)) {
+          setConnectedUsers(users);
+        } else {
+          console.warn('⚠️ Invalid users data received:', users);
+        }
       });
 
       socketService.on('user-joined', (data) => {
-        console.log(`${data.user.name} joined the board`);
+        console.log(`✅ ${data.user.name} joined the board`);
+        // Users list will be updated via users-update event
       });
 
       socketService.on('user-left', (data) => {
-        console.log(`${data.user.name} left the board`);
+        console.log(`👋 ${data.user.name} left the board`);
+        // Users list will be updated via users-update event
       });
 
       socketService.on('line-draw', (data) => {
@@ -286,6 +297,8 @@ const Board = () => {
     const attemptJoinBoard = () => {
       if (isAuthenticated && token && boardId && socketService.connected && !boardJoined.current) {
         console.log('🏠 Attempting to join board:', boardId);
+        console.log('👤 Current user:', user?.name);
+        console.log('🔌 Socket connected:', socketService.connected);
         boardJoined.current = true;
         socketService.joinBoard(boardId);
         return true;
@@ -296,6 +309,7 @@ const Board = () => {
     if (isAuthenticated && token && boardId && socketInitialized.current) {
       // Reset board joined flag when board changes
       if (boardJoined.current && socketService.currentBoard !== boardId) {
+        console.log('🔄 Board changed, resetting join flag');
         boardJoined.current = false;
       }
       
@@ -303,6 +317,7 @@ const Board = () => {
       if (!attemptJoinBoard()) {
         // If not connected, wait a bit and try again
         joinAttemptTimeout = setTimeout(() => {
+          console.log('⏳ Retrying board join...');
           attemptJoinBoard();
         }, 1000);
       }
@@ -313,11 +328,20 @@ const Board = () => {
         clearTimeout(joinAttemptTimeout);
       }
       if (socketService.connected && boardId) {
+        console.log('🚪 Leaving board on cleanup');
         socketService.leaveBoard();
         boardJoined.current = false;
       }
     };
-  }, [boardId, isAuthenticated, token]);
+  }, [boardId, isAuthenticated, token, user]);
+
+  // Debug: Log connected users whenever they change
+  useEffect(() => {
+    console.log('👥 Connected users updated:', {
+      count: connectedUsers.length,
+      users: connectedUsers.map(u => ({ name: u.name, email: u.email }))
+    });
+  }, [connectedUsers]);
 
   // Auto-save functionality
   useEffect(() => {
@@ -917,6 +941,74 @@ const Board = () => {
         x: pointer.x - mousePointTo.x * newScale,
         y: pointer.y - mousePointTo.y * newScale,
       });
+    }
+  };
+
+  // Touch gesture helpers
+  const getTouchDistance = (touch1, touch2) => {
+    const dx = touch1.clientX - touch2.clientX;
+    const dy = touch1.clientY - touch2.clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
+  const getTouchCenter = (touch1, touch2) => {
+    return {
+      x: (touch1.clientX + touch2.clientX) / 2,
+      y: (touch1.clientY + touch2.clientY) / 2,
+    };
+  };
+
+  // Handle pinch-to-zoom on mobile
+  const handleTouchMove = (e) => {
+    const touch1 = e.evt.touches[0];
+    const touch2 = e.evt.touches[1];
+
+    // Two-finger pinch to zoom
+    if (touch1 && touch2) {
+      e.evt.preventDefault();
+      
+      const dist = getTouchDistance(touch1, touch2);
+      
+      if (lastTouchDistance.current !== null) {
+        const center = getTouchCenter(touch1, touch2);
+        const stage = stageRef.current;
+        const oldScale = stageScale;
+        
+        // Calculate scale change
+        const scaleDelta = dist / lastTouchDistance.current;
+        const newScale = Math.min(Math.max(oldScale * scaleDelta, 0.1), 5);
+        
+        // Calculate new position to zoom towards touch center
+        const mousePointTo = {
+          x: (center.x - stagePos.x) / oldScale,
+          y: (center.y - stagePos.y) / oldScale,
+        };
+
+        setStageScale(newScale);
+        setStagePos({
+          x: center.x - mousePointTo.x * newScale,
+          y: center.y - mousePointTo.y * newScale,
+        });
+      }
+      
+      lastTouchDistance.current = dist;
+    } else {
+      lastTouchDistance.current = null;
+      // Single finger - handle as normal drawing/panning
+      if (tool === TOOL_SELECT) {
+        handleStageMouseMove(e);
+      } else {
+        handleMouseMove(e);
+      }
+    }
+  };
+
+  const handleTouchEnd = (e) => {
+    lastTouchDistance.current = null;
+    if (tool === TOOL_SELECT) {
+      handleStageMouseUp(e);
+    } else {
+      handleMouseUp(e);
     }
   };
 
@@ -1533,29 +1625,7 @@ const Board = () => {
 
           <div className="flex items-center gap-4">
             {/* Connected users */}
-            {connectedUsers.length > 0 && (
-              <div className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} px-6 py-3 flex items-center gap-4 border ${colors.border.primary}`}>
-                <div className="flex -space-x-3">
-                  {connectedUsers.slice(0, 5).map((user, index) => (
-                    <div
-                      key={user.id}
-                      className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 text-white rounded-full flex items-center justify-center text-sm font-semibold border-3 border-white dark:border-gray-800 shadow-lg"
-                      title={user.name}
-                    >
-                      {user.name?.charAt(0)?.toUpperCase()}
-                    </div>
-                  ))}
-                  {connectedUsers.length > 5 && (
-                    <div className="w-10 h-10 bg-gradient-to-br from-gray-400 to-gray-600 text-white rounded-full flex items-center justify-center text-sm font-semibold border-3 border-white dark:border-gray-800 shadow-lg">
-                      +{connectedUsers.length - 5}
-                    </div>
-                  )}
-                </div>
-                <span className={`text-sm ${colors.text.secondary}`}>
-                  {connectedUsers.length} online
-                </span>
-              </div>
-            )}
+            <OnlineMembers users={connectedUsers} theme={isDark ? 'dark' : 'light'} />
 
             {/* Chat toggle */}
             <motion.button
@@ -1599,6 +1669,9 @@ const Board = () => {
           onMouseDown={tool === TOOL_SELECT ? handleStageMouseDown : handleMouseDown}
           onMouseMove={tool === TOOL_SELECT ? handleStageMouseMove : handleMouseMove}
           onMouseUp={tool === TOOL_SELECT ? handleStageMouseUp : handleMouseUp}
+          onTouchStart={tool === TOOL_SELECT ? handleStageMouseDown : handleMouseDown}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           onWheel={handleWheel}
           className={`${colors.bg.secondary}`}
           style={{

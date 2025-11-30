@@ -45,7 +45,7 @@ const whiteboardEvents = (io) => {
         console.log('✅ Board found:', board.title);
 
         const hasAccess = board.owner.toString() === socket.user._id.toString() ||
-                         board.collaborators.some(collab => collab.user.toString() === socket.user._id.toString()) ||
+                         board.collaborators.some(collab => collab.user && collab.user.toString() === socket.user._id.toString()) ||
                          board.isPublic;
 
         if (!hasAccess) {
@@ -54,21 +54,30 @@ const whiteboardEvents = (io) => {
           return;
         }
 
+        // Use consistent room identifier (prefer UUID boardId over MongoDB _id)
+        const roomId = board.boardId || boardId;
+
         // Leave previous board if any
         if (socket.currentBoard) {
           socket.leave(socket.currentBoard);
           removeUserFromBoard(socket.currentBoard, socket.id);
         }
 
-        // Join new board
-        socket.join(boardId);
-        socket.currentBoard = boardId;
+        // Join new board using consistent room ID
+        socket.join(roomId);
+        socket.currentBoard = roomId;
+        console.log(`🚪 User ${socket.user.name} joining room: ${roomId}`);
+
+        // Join new board using consistent room ID
+        socket.join(roomId);
+        socket.currentBoard = roomId;
+        console.log(`🚪 User ${socket.user.name} joining room: ${roomId}`);
 
         // Add user to board users
-        if (!boardUsers.has(boardId)) {
-          boardUsers.set(boardId, new Map());
+        if (!boardUsers.has(roomId)) {
+          boardUsers.set(roomId, new Map());
         }
-        boardUsers.get(boardId).set(socket.id, {
+        boardUsers.get(roomId).set(socket.id, {
           id: socket.user._id,
           name: socket.user.name,
           email: socket.user.email,
@@ -78,11 +87,11 @@ const whiteboardEvents = (io) => {
         // Send current board state to the joining user
         socket.emit('board-state', {
           board: board.data,
-          users: Array.from(boardUsers.get(boardId).values())
+          users: Array.from(boardUsers.get(roomId).values())
         });
 
         // Notify other users in the board
-        socket.to(boardId).emit('user-joined', {
+        socket.to(roomId).emit('user-joined', {
           user: {
             id: socket.user._id,
             name: socket.user.name,
@@ -91,11 +100,11 @@ const whiteboardEvents = (io) => {
         });
 
         // Send updated user list to all users in the board
-        const currentUsers = Array.from(boardUsers.get(boardId).values());
-        io.to(boardId).emit('users-update', currentUsers);
-        console.log(`👥 Users in board ${boardId}:`, currentUsers.map(u => u.name));
+        const currentUsers = Array.from(boardUsers.get(roomId).values());
+        io.to(roomId).emit('users-update', currentUsers);
+        console.log(`👥 Users in board ${roomId}:`, currentUsers.map(u => u.name));
 
-        console.log(`👤 User ${socket.user.name} joined board ${boardId}`);
+        console.log(`👤 User ${socket.user.name} joined board ${roomId}`);
       } catch (error) {
         console.error('Join board error:', error);
         socket.emit('error', { message: 'Failed to join board' });

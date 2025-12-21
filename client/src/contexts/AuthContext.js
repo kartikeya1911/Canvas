@@ -97,25 +97,36 @@ export const AuthProvider = ({ children }) => {
    */
   const login = async (email, password) => {
     try {
-      // API CALL: Send login credentials to server
+      console.log('🔐 Attempting login for:', email);
       const response = await api.post('/auth/login', { email, password });
+      console.log('✅ Login response received:', response.data);
+      
       const { user, token } = response.data;
       
-      // STORE: Save token in localStorage for persistence across page reloads
-      localStorage.setItem('token', token);
+      if (!token) {
+        throw new Error('No token received from server');
+      }
       
-      // UPDATE STATE: Set token and user data
+      localStorage.setItem('token', token);
       setToken(token);
       setUser(user);
       
-      // SUCCESS: Return success status with user data
+      console.log('✅ Login successful, user:', user.name);
       return { success: true, user };
     } catch (error) {
-      // ERROR: Login failed, return error message
-      console.error('Login error:', error);
+      console.error('❌ Login error:', error);
+      
+      let errorMessage = 'Login failed. Please try again.';
+      
+      if (error.response) {
+        errorMessage = error.response.data?.message || `Server error: ${error.response.status}`;
+      } else if (error.request) {
+        errorMessage = 'Cannot connect to server. Please check if the backend is running.';
+      }
+      
       return { 
         success: false, 
-        message: error.response?.data?.message || 'Login failed' 
+        message: errorMessage
       };
     }
   };

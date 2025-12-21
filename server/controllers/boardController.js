@@ -35,12 +35,15 @@ const createBoard = async (req, res) => {
       .populate('owner', 'name email')
       .populate('collaborators.user', 'name email');
 
+    // Use auto-detected IP from global variable
+    const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+
     res.status(201).json({
       success: true,
       message: 'Board created successfully',
       board: {
         ...populatedBoard.toObject(),
-        inviteUrl: populatedBoard.getInviteUrl()
+        inviteUrl: populatedBoard.getInviteUrl(clientUrl)
       }
     });
   } catch (error) {
@@ -170,7 +173,23 @@ const getBoard = async (req, res) => {
 // @access  Private
 const updateBoard = async (req, res) => {
   try {
-    const board = await Board.findById(req.params.id);
+    const { id } = req.params;
+    let board;
+    
+    // Check if it's a MongoDB ObjectId or UUID
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+    
+    if (isObjectId) {
+      board = await Board.findById(id);
+    } else if (isUUID) {
+      board = await Board.findOne({ boardId: id });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid board ID format'
+      });
+    }
 
     if (!board) {
       return res.status(404).json({ message: 'Board not found' });
@@ -179,7 +198,7 @@ const updateBoard = async (req, res) => {
     // Check if user is owner or has edit access
     const isOwner = board.owner.toString() === req.user.id;
     const isEditor = board.collaborators.some(collab => 
-      collab.user.toString() === req.user.id && 
+      collab.user && collab.user.toString() === req.user.id && 
       ['editor', 'admin'].includes(collab.role)
     );
 
@@ -405,11 +424,14 @@ const getBoardByInvite = async (req, res) => {
 
     console.log('✅ Access granted, returning board info');
     
+    // Use auto-detected IP from global variable
+    const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+    
     res.json({
       success: true,
       board: {
         ...board.toObject(),
-        inviteUrl: board.getInviteUrl()
+        inviteUrl: board.getInviteUrl(clientUrl)
       }
     });
   } catch (error) {
@@ -470,9 +492,12 @@ const generateInviteLink = async (req, res) => {
 
     await board.save();
 
+    // Use auto-detected IP from global variable for cross-device sharing
+    const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+
     res.json({
       success: true,
-      inviteUrl: board.getInviteUrl(),
+      inviteUrl: board.getInviteUrl(clientUrl),
       boardId: board.boardId,
       settings: {
         allowAnonymous: board.allowAnonymous
@@ -506,6 +531,12 @@ const joinBoardViaInvite = async (req, res) => {
       });
     }
 
+    // Clean up null collaborators (users that were deleted)
+    board.collaborators = board.collaborators.filter(collab => collab.user != null);
+    if (board.collaborators.length !== board.collaborators.length) {
+      await board.save();
+    }
+
     // If user is not authenticated and board doesn't allow anonymous access
     if (!req.user && !board.allowAnonymous) {
       return res.status(401).json({
@@ -518,19 +549,20 @@ const joinBoardViaInvite = async (req, res) => {
     if (req.user) {
       // Check if user is already owner
       if (board.owner._id.toString() === req.user.id) {
+        const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
         return res.json({
           success: true,
           message: 'You are the owner of this board',
           board: {
             ...board.toObject(),
-            inviteUrl: board.getInviteUrl()
+            inviteUrl: board.getInviteUrl(clientUrl)
           }
         });
       }
 
       // Check if user is already a collaborator
       const existingCollaborator = board.collaborators.find(
-        collab => collab.user._id.toString() === req.user.id
+        collab => collab.user && collab.user._id && collab.user._id.toString() === req.user.id
       );
 
       if (!existingCollaborator) {
@@ -555,22 +587,25 @@ const joinBoardViaInvite = async (req, res) => {
         .populate('owner', 'name email')
         .populate('collaborators.user', 'name email');
 
+      const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+
       res.json({
         success: true,
         message: existingCollaborator ? 'Already a member of this board' : 'Successfully joined the board',
         board: {
           ...updatedBoard.toObject(),
-          inviteUrl: updatedBoard.getInviteUrl()
+          inviteUrl: updatedBoard.getInviteUrl(clientUrl)
         }
       });
     } else {
       // Anonymous access
+      const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
       res.json({
         success: true,
         message: 'Anonymous access granted',
         board: {
           ...board.toObject(),
-          inviteUrl: board.getInviteUrl()
+          inviteUrl: board.getInviteUrl(clientUrl)
         },
         anonymous: true
       });

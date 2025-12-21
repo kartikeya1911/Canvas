@@ -1,44 +1,73 @@
-// Import required npm packages for the server
-const express = require('express'); // Express.js framework for building the REST API
-const http = require('http'); // Node.js HTTP module to create HTTP server
-const socketIo = require('socket.io'); // Socket.IO for real-time bidirectional communication
-const cors = require('cors'); // CORS middleware to enable cross-origin requests
-const connectDB = require('./config/db'); // Database connection configuration
-const authRoutes = require('./routes/authRoutes'); // Authentication routes (login, register, etc.)
-const boardRoutes = require('./routes/boardRoutes'); // Board routes (create, update, delete boards)
-const whiteboardEvents = require('./socketHandlers/whiteboardEvents'); // Real-time whiteboard event handlers
-require('dotenv').config(); // Load environment variables from .env file
+const express = require('express');
+const http = require('http');
+const socketIo = require('socket.io');
+const cors = require('cors');
+const os = require('os');
+const connectDB = require('./config/db');
+const authRoutes = require('./routes/authRoutes');
+const boardRoutes = require('./routes/boardRoutes');
+const whiteboardEvents = require('./socketHandlers/whiteboardEvents');
+require('dotenv').config();
 
-// Initialize Express application
 const app = express();
-
-// Create HTTP server using Express app
-// This is needed to integrate Socket.IO with Express
 const server = http.createServer(app);
 
-// Configure Socket.IO with CORS settings
-// This enables real-time communication between client and server
-const io = socketIo(server, {
-  cors: {
-    origin: process.env.CLIENT_URL || "http://localhost:3000", // Allow requests from React client
-    methods: ["GET", "POST"], // Allowed HTTP methods
-    credentials: true // Allow cookies and credentials
+const getLocalIPAddress = () => {
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family === 'IPv4' && !iface.internal) {
+        return iface.address;
+      }
+    }
   }
+  return 'localhost';
+};
+
+const LOCAL_IP = getLocalIPAddress();
+const CLIENT_PORT = 3000;
+
+// Socket.IO setup with CORS - allow both localhost, network IP, and Vercel
+const allowedOrigins = [
+  "http://localhost:3000",
+  `http://${LOCAL_IP}:${CLIENT_PORT}`,
+  process.env.CLIENT_URL,
+  "https://colabcanvas.vercel.app",
+  "https://colabcanvas-c81bl9alj-jainkartikeya9-gmailcoms-projects.vercel.app"
+].filter(Boolean);
+
+// CORS origin checker function to allow all Vercel preview URLs
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    
+    // Check if origin matches Vercel preview URL pattern
+    if (origin.match(/https:\/\/colabcanvas.*\.vercel\.app$/)) {
+      return callback(null, true);
+    }
+    
+    callback(new Error('Not allowed by CORS'));
+  },
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+  credentials: true
+};
+
+const io = socketIo(server, {
+  cors: corsOptions
 });
 
 // Connect to MongoDB database
 // This establishes connection to MongoDB for data persistence
 connectDB();
 
-// Apply CORS middleware to Express app
-// This allows the React frontend to make API requests to the backend
-app.use(cors({
-  origin: process.env.CLIENT_URL || "http://localhost:3000", // Allow requests from React client
-  credentials: true // Allow cookies in cross-origin requests
-}));
-
-// Parse incoming JSON request bodies
-// This middleware makes req.body available in route handlers
+app.use(cors(corsOptions));
+>>>>>>> dea45aa6c3a632f17db74d1104dfc9072effc0fd
 app.use(express.json());
 
 // Mount authentication routes at /api/auth
@@ -63,15 +92,30 @@ app.get('/api/health', (req, res) => {
   });
 });
 
-// Set the port from environment variable or default to 5000
 const PORT = process.env.PORT || 5000;
+const HOST = '0.0.0.0';
 
-// Start the server and listen on the specified port
-server.listen(PORT, () => {
-  console.log(`🚀 ColabCanvas server running on port ${PORT}`);
-  console.log(`🌐 Client URL: ${process.env.CLIENT_URL || "http://localhost:3000"}`);
-  console.log(`📡 Socket.IO ready for real-time collaboration`);
+if (process.env.NODE_ENV === 'production' && process.env.CLIENT_URL) {
+  global.CLIENT_URL = process.env.CLIENT_URL;
+} else {
+  global.CLIENT_URL = `http://${LOCAL_IP}:${CLIENT_PORT}`;
+}
+
+server.listen(PORT, HOST, () => {
+  console.log('\n╔═══════════════════════════════════════════════════════════╗');
+  console.log('║         🎨 ColabCanvas Server Started Successfully       ║');
+  console.log('╚═══════════════════════════════════════════════════════════╝\n');
+  console.log(`🚀 Server running on port: ${PORT}`);
+  console.log(`📍 Local IP Address: ${LOCAL_IP}`);
+  console.log(`\n📱 Access URLs:`);
+  console.log(`   • Local:    http://localhost:${PORT}`);
+  console.log(`   • Network:  http://${LOCAL_IP}:${PORT}`);
+  console.log(`\n🌐 Frontend URLs:`);
+  console.log(`   • Local:    http://localhost:${CLIENT_PORT}`);
+  console.log(`   • Network:  http://${LOCAL_IP}:${CLIENT_PORT}`);
+  console.log(`\n📡 Socket.IO ready for real-time collaboration`);
+  console.log(`🔗 Share links will use: ${global.CLIENT_URL}`);
+  console.log('\n✅ Ready to accept connections!\n');
 });
 
-// Export server components for testing purposes
 module.exports = { app, server, io };

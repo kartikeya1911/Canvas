@@ -140,6 +140,7 @@ const BoardSchema = new mongoose.Schema({
   timestamps: true // Automatically add createdAt and updatedAt fields
 });
 
+<<<<<<< HEAD
 /**
  * Database Indexes for Performance Optimization
  * Indexes speed up queries on frequently searched fields
@@ -148,20 +149,17 @@ const BoardSchema = new mongoose.Schema({
 BoardSchema.index({ boardId: 1 }); // 1 means ascending order
 
 // Index on owner for fast lookup of boards owned by a user
+=======
+// Indexes for performance (boardId already has unique index from schema)
+>>>>>>> dea45aa6c3a632f17db74d1104dfc9072effc0fd
 BoardSchema.index({ owner: 1 });
 
 // Index on collaborators for fast lookup of boards where user is collaborator
 BoardSchema.index({ 'collaborators.user': 1 });
 
-/**
- * Instance method to generate shareable invite URL
- * This creates a link that can be shared with others to join the board
- * 
- * @param {String} baseUrl - Base URL of the application
- * @returns {String} - Complete invite URL
- */
-BoardSchema.methods.getInviteUrl = function(baseUrl = 'http://localhost:3000') {
-  return `${baseUrl}/invite/${this.boardId}`;
+BoardSchema.methods.getInviteUrl = function(baseUrl) {
+  const url = baseUrl || global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+  return `${url}/invite/${this.boardId}`;
 };
 
 /**

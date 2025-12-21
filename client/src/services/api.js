@@ -62,7 +62,6 @@ api.interceptors.response.use(
       // Error in request setup
       console.error('❌ Request Setup Error:', error.message);
     }
->>>>>>> dea45aa6c3a632f17db74d1104dfc9072effc0fd
     return Promise.reject(error);
   }
 );

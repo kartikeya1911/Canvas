@@ -446,20 +446,26 @@ const getBoardByInvite = async (req, res) => {
 
 // @desc    Generate new invite link for board
 // @route   POST /api/boards/:id/invite
-// @access  Private (Owner only)
+// @access  Private (Owner, Editors, and Admins)
 const generateInviteLink = async (req, res) => {
   try {
     let board;
     const { id } = req.params;
+    
+    console.log('🔗 Generate invite link request:', {
+      boardId: id,
+      userId: req.user.id,
+      userName: req.user.name
+    });
     
     // Check if it's a MongoDB ObjectId or UUID
     const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
     const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
     
     if (isObjectId) {
-      board = await Board.findById(id);
+      board = await Board.findById(id).populate('owner', 'name email');
     } else if (isUUID) {
-      board = await Board.findOne({ boardId: id });
+      board = await Board.findOne({ boardId: id }).populate('owner', 'name email');
     } else {
       return res.status(400).json({
         success: false,
@@ -468,49 +474,66 @@ const generateInviteLink = async (req, res) => {
     }
 
     if (!board) {
+      console.log('❌ Board not found:', id);
       return res.status(404).json({ 
         success: false,
         message: 'Board not found' 
       });
     }
 
-    // Check if user is owner or has admin/editor access
-    const isOwner = board.owner.toString() === req.user.id;
-    const isEditor = board.collaborators.some(collab => 
-      collab.user && collab.user.toString() === req.user.id && 
-      ['editor', 'admin'].includes(collab.role)
-    );
+    console.log('✅ Board found:', {
+      title: board.title,
+      owner: board.owner.name,
+      ownerId: board.owner._id.toString(),
+      requestingUserId: req.user.id
+    });
 
-    if (!isOwner && !isEditor) {
+    // Check if user has access to this board
+    const isOwner = board.owner._id.toString() === req.user.id;
+    const collaborator = board.collaborators.find(collab => 
+      collab.user && collab.user.toString() === req.user.id
+    );
+    const hasAccess = isOwner || collaborator;
+
+    if (!hasAccess) {
+      console.log('❌ User does not have access to board');
       return res.status(403).json({
         success: false,
-        message: 'You do not have permission to generate invite links for this board'
+        message: 'You do not have access to this board'
       });
     }
+
+    console.log('✅ User has access:', {
+      isOwner,
+      role: isOwner ? 'owner' : collaborator?.role
+    });
 
     // Ensure board has a boardId (for existing boards without one)
     if (!board.boardId) {
       board.boardId = require('crypto').randomUUID();
     }
 
-    // Always allow anonymous access and editing for anyone with the link
+    // Always allow anonymous access for sharing
     board.allowAnonymous = true;
 
     await board.save();
 
     // Use auto-detected IP from global variable for cross-device sharing
     const clientUrl = global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';
+    const inviteUrl = board.getInviteUrl(clientUrl);
+
+    console.log('✅ Invite link generated:', inviteUrl);
 
     res.json({
       success: true,
-      inviteUrl: board.getInviteUrl(clientUrl),
+      inviteUrl,
       boardId: board.boardId,
       settings: {
         allowAnonymous: board.allowAnonymous
       }
     });
   } catch (error) {
-    console.error('Generate invite link error:', error);
+    console.error('❌ Generate invite link error:', error);
     res.status(500).json({
       success: false,
       message: 'Server error generating invite link',

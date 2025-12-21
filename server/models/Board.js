@@ -137,24 +137,11 @@ const BoardSchema = new mongoose.Schema({
     default: Date.now // Set to current time by default
   }
 }, {
-  timestamps: true // Automatically add createdAt and updatedAt fields
+  timestamps: true
 });
 
-<<<<<<< HEAD
-/**
- * Database Indexes for Performance Optimization
- * Indexes speed up queries on frequently searched fields
- */
-// Index on boardId for fast lookup when using invite links
-BoardSchema.index({ boardId: 1 }); // 1 means ascending order
-
-// Index on owner for fast lookup of boards owned by a user
-=======
-// Indexes for performance (boardId already has unique index from schema)
->>>>>>> dea45aa6c3a632f17db74d1104dfc9072effc0fd
+BoardSchema.index({ boardId: 1 });
 BoardSchema.index({ owner: 1 });
-
-// Index on collaborators for fast lookup of boards where user is collaborator
 BoardSchema.index({ 'collaborators.user': 1 });
 
 BoardSchema.methods.getInviteUrl = function(baseUrl) {

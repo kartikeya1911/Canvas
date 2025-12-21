@@ -67,7 +67,6 @@ const io = socketIo(server, {
 connectDB();
 
 app.use(cors(corsOptions));
->>>>>>> dea45aa6c3a632f17db74d1104dfc9072effc0fd
 app.use(express.json());
 
 // Mount authentication routes at /api/auth

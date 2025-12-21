@@ -1,0 +1,1183 @@
+================================================================================
+                    COLABCANVAS - PROJECT DOCUMENTATION
+                    Real-Time Collaborative Whiteboard
+================================================================================
+
+TABLE OF CONTENTS
+-----------------
+1. Project Overview
+2. System Architecture
+3. Technology Stack
+4. Features & Functionality
+5. Database Schema
+6. Real-Time Communication Flow
+7. Authentication & Authorization
+8. File Structure
+9. API Endpoints
+10. Socket Events
+11. Wireframing & User Flow
+12. Setup Instructions
+13. Key Implementation Details
+
+================================================================================
+1. PROJECT OVERVIEW
+================================================================================
+
+ColabCanvas is a real-time collaborative whiteboard application that allows
+multiple users to draw, annotate, and collaborate on a shared canvas in real-time.
+Users can create boards, share them with others, and work together seamlessly
+with instant synchronization across all connected clients.
+
+Key Highlights:
+- Real-time collaboration with Socket.IO
+- Anonymous and authenticated access
+- Rich drawing tools (pencil, pen, shapes, text)
+- Shape manipulation (drag, move, delete)
+- Multiple users can edit simultaneously
+- Instant synchronization across all connected devices
+- Dark/Light theme support
+- Board sharing with invite links
+
+================================================================================
+2. SYSTEM ARCHITECTURE
+================================================================================
+
+┌─────────────────────────────────────────────────────────────────────┐
+│                         CLIENT (React.js)                            │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │   UI Components  │  │  Canvas (Konva)  │  │  Socket Client   │  │
+│  │  - Navbar        │  │  - Drawing Layer │  │  - Event Emit    │  │
+│  │  - Toolbar       │  │  - Shape Layer   │  │  - Event Listen  │  │
+│  │  - Modal         │  │  - Grid Layer    │  │  - Reconnection  │  │
+│  └──────────────────┘  └──────────────────┘  └──────────────────┘  │
+│         │                      │                       │             │
+│         └──────────────────────┴───────────────────────┘             │
+│                                │                                     │
+└────────────────────────────────┼─────────────────────────────────────┘
+                                 │
+                    HTTP REST API │ WebSocket (Socket.IO)
+                                 │
+┌────────────────────────────────┼─────────────────────────────────────┐
+│                         SERVER (Node.js + Express)                   │
+│  ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐  │
+│  │   REST Routes    │  │  Socket Handler  │  │   Middleware     │  │
+│  │  - Auth Routes   │  │  - Join Board    │  │  - JWT Auth      │  │
+│  │  - Board Routes  │  │  - Drawing Events│  │  - CORS          │  │
+│  └──────────────────┘  │  - Shape Events  │  │  - Error Handler │  │
+│         │              │  - User Events   │  └──────────────────┘  │
+│         │              └──────────────────┘           │             │
+│         └──────────────────────┬────────────────────────┘            │
+│                                │                                     │
+│                    ┌───────────▼───────────┐                        │
+│                    │   MongoDB Database    │                        │
+│                    │  - Users Collection   │                        │
+│                    │  - Boards Collection  │                        │
+│                    └───────────────────────┘                        │
+└─────────────────────────────────────────────────────────────────────┘
+
+Data Flow:
+1. User performs action on canvas (draw, move, delete)
+2. Client updates local state immediately (optimistic update)
+3. Client emits socket event to server
+4. Server saves to database with markModified()
+5. Server broadcasts to all other connected clients
+6. Other clients receive event and update their canvas
+7. All users see synchronized state in real-time
+
+================================================================================
+3. TECHNOLOGY STACK
+================================================================================
+
+FRONTEND:
+- React.js 18.x          - UI framework
+- Konva.js & React-Konva - Canvas rendering and manipulation
+- Socket.IO Client       - Real-time WebSocket communication
+- Framer Motion          - Smooth animations and transitions
+- Tailwind CSS           - Utility-first CSS framework
+- React Router DOM       - Client-side routing
+- Axios                  - HTTP client for API calls
+
+BACKEND:
+- Node.js 16.x+          - JavaScript runtime
+- Express.js             - Web application framework
+- Socket.IO              - WebSocket server for real-time events
+- MongoDB + Mongoose     - NoSQL database and ODM
+- JWT (jsonwebtoken)     - Authentication tokens
+- bcryptjs               - Password hashing
+- dotenv                 - Environment variable management
+- CORS                   - Cross-origin resource sharing
+
+INFRASTRUCTURE:
+- MongoDB Atlas          - Cloud database hosting
+- Environment Variables  - Configuration management
+
+================================================================================
+4. FEATURES & FUNCTIONALITY
+================================================================================
+
+4.1 USER MANAGEMENT
+-------------------
+✓ User Registration (Name, Email, Password)
+✓ User Login with JWT authentication
+✓ Password encryption with bcrypt
+✓ Profile management
+✓ Anonymous access for shared boards
+
+4.2 BOARD MANAGEMENT
+--------------------
+✓ Create new boards
+✓ List user's boards (My Boards)
+✓ Delete boards
+✓ Board metadata (title, description, created date)
+✓ Board ownership and permissions
+✓ Generate shareable invite links
+✓ Anonymous access via invite links
+
+4.3 DRAWING TOOLS
+-----------------
+✓ Pencil Tool       - Freehand drawing
+✓ Pen Tool          - Smooth pen strokes
+✓ Highlighter       - Semi-transparent marker
+✓ Marker            - Bold marker strokes
+✓ Eraser Tools      - Full & partial eraser
+✓ Select Tool       - Pan canvas & move shapes
+
+✓ Shape Tools:
+  - Rectangle       - Standard rectangles
+  - Circle          - Perfect circles
+  - Ellipse         - Oval shapes
+  - Diamond         - Diamond shapes
+  - Triangle        - Triangular shapes
+  - Star            - Star shapes
+  - Hexagon         - Six-sided shapes
+  - Arrow           - Directional arrows
+  - Line            - Straight lines
+
+✓ Text Tool         - Add text annotations
+
+4.4 SHAPE MANIPULATION
+----------------------
+✓ Drag shapes (in SELECT mode only)
+✓ Move shapes across canvas
+✓ Delete individual shapes
+✓ Clear entire board
+✓ Real-time position updates
+
+4.5 CUSTOMIZATION
+-----------------
+✓ Color picker for strokes/fills
+✓ Thickness adjustment
+✓ Opacity control
+✓ Dark/Light theme toggle
+✓ Cursor customization per tool
+
+4.6 REAL-TIME COLLABORATION
+---------------------------
+✓ Multiple users on same board
+✓ Real-time drawing synchronization
+✓ Shape movement sync
+✓ User presence indicators
+✓ Live cursor tracking
+✓ User join/leave notifications
+✓ Connected users list
+✓ Chat functionality
+
+4.7 CANVAS FEATURES
+-------------------
+✓ Grid background for alignment
+✓ Pan and zoom controls
+✓ Undo/Redo functionality
+✓ Export board as image
+✓ Keyboard shortcuts
+✓ Auto-save (500ms debounce)
+
+================================================================================
+5. DATABASE SCHEMA
+================================================================================
+
+5.1 USER COLLECTION
+-------------------
+{
+  _id: ObjectId,
+  name: String (required),
+  email: String (required, unique, lowercase),
+  password: String (required, hashed),
+  createdAt: Date (default: now),
+  updatedAt: Date
+}
+
+Indexes:
+- email: unique index for fast lookup
+
+5.2 BOARD COLLECTION
+--------------------
+{
+  _id: ObjectId,
+  boardId: String (UUID, unique),           // For sharing
+  title: String (required),
+  description: String,
+  owner: ObjectId (ref: 'User'),
+  collaborators: [
+    {
+      user: ObjectId (ref: 'User'),
+      role: String (enum: ['viewer', 'editor', 'admin']),
+      joinedAt: Date
+    }
+  ],
+  isPublic: Boolean (default: false),
+  allowAnonymous: Boolean (default: true),  // Allow non-logged users
+  data: {
+    lines: [
+      {
+        id: String,
+        points: [Number],                   // Array of x,y coordinates
+        tool: String,
+        color: String,
+        thickness: Number,
+        opacity: Number,
+        timestamp: Date
+      }
+    ],
+    rectangles: [
+      {
+        id: String,
+        x: Number,
+        y: Number,
+        width: Number,
+        height: Number,
+        type: String,                       // 'rect' or 'diamond'
+        color: String,
+        thickness: Number,
+        fill: String,
+        timestamp: Date
+      }
+    ],
+    circles: [
+      {
+        id: String,
+        x: Number,
+        y: Number,
+        radius: Number,
+        radiusX: Number,                    // For ellipse
+        radiusY: Number,                    // For ellipse
+        type: String,                       // 'circle', 'ellipse', 'star', 'hexagon'
+        color: String,
+        thickness: Number,
+        fill: String,
+        timestamp: Date
+      }
+    ],
+    arrows: [
+      {
+        id: String,
+        points: [Number],                   // Start and end points
+        type: String,                       // 'arrow', 'line', 'triangle'
+        color: String,
+        thickness: Number,
+        fill: String,
+        timestamp: Date
+      }
+    ],
+    textNodes: [
+      {
+        id: String,
+        x: Number,
+        y: Number,
+        text: String,
+        fontSize: Number,
+        color: String,
+        timestamp: Date
+      }
+    ]
+  },
+  createdAt: Date (default: now),
+  updatedAt: Date
+}
+
+Indexes:
+- boardId: unique index
+- owner: index for user's boards lookup
+
+Methods:
+- hasPermission(userId): Check if user has access
+- getInviteUrl(): Generate shareable URL
+
+================================================================================
+6. REAL-TIME COMMUNICATION FLOW
+================================================================================
+
+6.1 CONNECTION ESTABLISHMENT
+----------------------------
+Client                          Server
+  │                               │
+  │  1. Connect with/without JWT  │
+  ├──────────────────────────────>│
+  │                               │ 2. Authenticate/Allow Anonymous
+  │                               │
+  │  3. Connection Confirmed      │
+  │<──────────────────────────────┤
+  │                               │
+  │  4. Join Board (boardId)      │
+  ├──────────────────────────────>│
+  │                               │ 5. Load latest board from DB
+  │                               │ 6. Add user to room
+  │                               │
+  │  7. board-state (full data)   │
+  │<──────────────────────────────┤
+  │                               │
+  │  8. user-joined notification  │
+  │<──────────────────────────────┤ (broadcast to others)
+  │                               │
+
+6.2 DRAWING OPERATION FLOW
+--------------------------
+User A (Drawer)                Server                    User B (Viewer)
+      │                          │                              │
+  1. Draw line                   │                              │
+      │                          │                              │
+  2. Add to local state          │                              │
+      │                          │                              │
+  3. emit('line-draw', data)     │                              │
+      ├─────────────────────────>│                              │
+                                 │ 4. Save to DB (markModified) │
+                                 │                              │
+                                 │ 5. emit('line-draw', data)   │
+                                 │─────────────────────────────>│
+                                 │                          6. Add to state
+                                 │                          7. Render line
+
+6.3 SHAPE MOVEMENT FLOW
+-----------------------
+User A (Mover)                 Server                    User B (Observer)
+      │                          │                              │
+  1. Drag shape (SELECT mode)    │                              │
+      │                          │                              │
+  2. Update local position       │                              │
+      │                          │                              │
+  3. emit('shape-update', data)  │                              │
+      ├─────────────────────────>│                              │
+                                 │ 4. Find & update in DB       │
+                                 │    markModified('data')      │
+                                 │                              │
+                                 │ 5. emit('shape-update')      │
+                                 │─────────────────────────────>│
+                                 │                          6. Update position
+                                 │                          7. Re-render
+
+6.4 USER JOIN FLOW
+------------------
+New User                       Server                    Existing Users
+    │                            │                              │
+1. Navigate to board URL         │                              │
+    │                            │                              │
+2. HTTP GET /board/:id           │                              │
+    ├───────────────────────────>│                              │
+                                 │ 3. Verify access/permissions │
+                                 │                              │
+    │ 4. Board data              │                              │
+    │<───────────────────────────┤                              │
+    │                            │                              │
+5. Connect socket                │                              │
+    ├───────────────────────────>│                              │
+                                 │ 6. Authenticate              │
+                                 │                              │
+7. emit('join-board', boardId)   │                              │
+    ├───────────────────────────>│                              │
+                                 │ 8. Reload board from DB      │
+                                 │ 9. Add to room               │
+                                 │                              │
+    │ 10. board-state (latest)   │                              │
+    │<───────────────────────────┤                              │
+                                 │                              │
+                                 │ 11. user-joined notification │
+                                 │─────────────────────────────>│
+                                 │                          12. Show alert
+
+================================================================================
+7. AUTHENTICATION & AUTHORIZATION
+================================================================================
+
+7.1 JWT TOKEN STRUCTURE
+-----------------------
+Header:
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+
+Payload:
+{
+  "id": "user_mongodb_id",
+  "iat": 1640000000,      // Issued at
+  "exp": 1640086400       // Expires at (30 days)
+}
+
+Signature:
+HMACSHA256(
+  base64UrlEncode(header) + "." + base64UrlEncode(payload),
+  JWT_SECRET
+)
+
+7.2 AUTHENTICATION FLOW
+-----------------------
+1. User Registration:
+   POST /api/auth/register
+   - Validate email format
+   - Check if user exists
+   - Hash password with bcrypt (10 rounds)
+   - Create user in database
+   - Generate JWT token
+   - Return token + user data
+
+2. User Login:
+   POST /api/auth/login
+   - Validate email & password
+   - Compare hashed password
+   - Generate JWT token
+   - Return token + user data
+
+3. Protected Routes:
+   - Extract token from "Authorization: Bearer <token>"
+   - Verify token with JWT_SECRET
+   - Fetch user from database
+   - Attach user to req.user
+   - Continue to route handler
+
+4. Socket Authentication:
+   - Extract token from handshake
+   - Verify token OR allow anonymous
+   - Attach user/anonymous to socket.user
+   - Allow connection
+
+7.3 AUTHORIZATION LEVELS
+------------------------
+Board Access Control:
+- Owner: Full control (delete, share, edit)
+- Editor: Can draw and modify content
+- Viewer: Can only view (not implemented in current version)
+- Anonymous: Can edit if allowAnonymous = true
+
+Current Implementation:
+- Anonymous users can edit when board allows it
+- All users with link have edit access
+- Only owner can generate new invite links
+
+================================================================================
+8. FILE STRUCTURE
+================================================================================
+
+ColabCanvas-main/
+│
+├── client/                          # React frontend
+│   ├── public/
+│   │   └── index.html              # HTML entry point
+│   │
+│   ├── src/
+│   │   ├── components/             # Reusable UI components
+│   │   │   ├── ChatPanel.jsx
+│   │   │   ├── CursorManager.jsx
+│   │   │   ├── ExportModal.jsx
+│   │   │   ├── KeyboardShortcutsHelp.jsx
+│   │   │   ├── LayerManager.jsx
+│   │   │   ├── Logo.jsx
+│   │   │   ├── Navbar.jsx
+│   │   │   ├── NotificationSystem.jsx
+│   │   │   ├── PrivateRoute.jsx
+│   │   │   ├── ShapesToolbar.jsx
+│   │   │   ├── ShareModal.jsx
+│   │   │   └── WelcomePopup.jsx
+│   │   │
+│   │   ├── contexts/               # React contexts
+│   │   │   ├── AuthContext.js     # Authentication state
+│   │   │   └── ThemeContext.js    # Dark/Light theme
+│   │   │
+│   │   ├── hooks/                  # Custom React hooks
+│   │   │   ├── useCursorBroadcast.js
+│   │   │   ├── useKeyboardShortcuts.js
+│   │   │   ├── useLayers.js
+│   │   │   └── useNotifications.js
+│   │   │
+│   │   ├── pages/                  # Main page components
+│   │   │   ├── Board.jsx          # Main whiteboard canvas
+│   │   │   ├── BoardInvite.jsx    # Shared board access
+│   │   │   ├── Dashboard.jsx      # User dashboard
+│   │   │   ├── Home.jsx           # Landing page
+│   │   │   ├── Login.jsx          # Login page
+│   │   │   ├── Profile.jsx        # User profile
+│   │   │   └── Signup.jsx         # Registration page
+│   │   │
+│   │   ├── services/               # API & Socket services
+│   │   │   ├── api.js             # Axios configuration
+│   │   │   ├── boardService.js    # Board API calls
+│   │   │   └── socketService.js   # Socket.IO client
+│   │   │
+│   │   ├── utils/                  # Utility functions
+│   │   │   ├── ExportManager.js
+│   │   │   └── motionFallback.js
+│   │   │
+│   │   ├── App.js                  # Root component
+│   │   ├── index.js               # Entry point
+│   │   └── index.css              # Global styles
+│   │
+│   ├── package.json
+│   └── tailwind.config.js
+│
+├── server/                          # Node.js backend
+│   ├── config/
+│   │   └── db.js                   # MongoDB connection
+│   │
+│   ├── controllers/                # Route controllers
+│   │   ├── authController.js      # Auth logic
+│   │   └── boardController.js     # Board CRUD
+│   │
+│   ├── middleware/                 # Express middleware
+│   │   └── authMiddleware.js      # JWT verification
+│   │
+│   ├── models/                     # Mongoose schemas
+│   │   ├── Board.js               # Board model
+│   │   └── User.js                # User model
+│   │
+│   ├── routes/                     # Express routes
+│   │   ├── authRoutes.js          # Auth endpoints
+│   │   └── boardRoutes.js         # Board endpoints
+│   │
+│   ├── socketHandlers/             # Socket.IO handlers
+│   │   └── whiteboardEvents.js    # Real-time events
+│   │
+│   ├── utils/
+│   │   └── generateToken.js       # JWT generation
+│   │
+│   ├── server.js                   # Server entry point
+│   ├── package.json
+│   └── .env                        # Environment variables
+│
+└── PROJECT_DOCUMENTATION.txt       # This file
+
+================================================================================
+9. API ENDPOINTS
+================================================================================
+
+9.1 AUTHENTICATION ENDPOINTS
+----------------------------
+POST /api/auth/register
+  Body: { name, email, password }
+  Response: { token, user: { id, name, email } }
+  Description: Register new user account
+
+POST /api/auth/login
+  Body: { email, password }
+  Response: { token, user: { id, name, email } }
+  Description: Login existing user
+
+GET /api/auth/me
+  Headers: Authorization: Bearer <token>
+  Response: { id, name, email }
+  Description: Get current user profile
+
+9.2 BOARD ENDPOINTS
+-------------------
+POST /api/boards
+  Headers: Authorization: Bearer <token>
+  Body: { title, description? }
+  Response: { board }
+  Description: Create new board
+
+GET /api/boards
+  Headers: Authorization: Bearer <token>
+  Response: { boards: [] }
+  Description: Get all boards owned by user
+
+GET /api/boards/:id
+  Headers: Authorization: Bearer <token> (optional)
+  Response: { board }
+  Description: Get single board by ID or boardId (UUID)
+
+PUT /api/boards/:id
+  Headers: Authorization: Bearer <token>
+  Body: { title?, description?, data? }
+  Response: { board }
+  Description: Update board content or metadata
+
+DELETE /api/boards/:id
+  Headers: Authorization: Bearer <token>
+  Response: { message }
+  Description: Delete board (owner only)
+
+POST /api/boards/:id/invite
+  Headers: Authorization: Bearer <token>
+  Response: { inviteUrl, boardId, settings }
+  Description: Generate shareable invite link (owner only)
+
+GET /api/boards/invite/:boardId
+  Response: { board }
+  Description: Access board via invite link (anonymous allowed)
+
+POST /api/boards/:id/collaborators
+  Headers: Authorization: Bearer <token>
+  Body: { email, role: 'editor'|'viewer' }
+  Response: { board }
+  Description: Add collaborator to board
+
+================================================================================
+10. SOCKET EVENTS
+================================================================================
+
+10.1 CONNECTION EVENTS
+----------------------
+connect
+  Emitted by: Client (automatic)
+  Received by: Server
+  Description: Socket connection established
+
+disconnect
+  Emitted by: Client (automatic)
+  Received by: Server
+  Payload: { reason }
+  Description: Socket connection closed
+
+join-board
+  Emitted by: Client
+  Payload: boardId (String)
+  Description: User wants to join a board room
+  Server Response: 
+    - 'board-state' with full board data
+    - 'users-update' with connected users
+  Broadcast: 'user-joined' to other users
+
+leave-board
+  Emitted by: Client
+  Description: User leaving current board
+  Broadcast: 'user-left' to other users
+
+10.2 DRAWING EVENTS
+-------------------
+line-draw
+  Emitted by: Client
+  Payload: { id, points: [], tool, color, thickness, opacity }
+  Server Action: Save to DB, broadcast to others
+  Received by: Other clients
+
+rect-draw
+  Emitted by: Client
+  Payload: { id, x, y, width, height, type, color, thickness, fill }
+  Server Action: Save to DB, broadcast to others
+  Received by: Other clients
+
+circle-draw
+  Emitted by: Client
+  Payload: { id, x, y, radius, type, color, thickness, fill }
+  Server Action: Save to DB, broadcast to others
+  Received by: Other clients
+
+arrow-draw
+  Emitted by: Client
+  Payload: { id, points: [], type, color, thickness, fill }
+  Server Action: Save to DB, broadcast to others
+  Received by: Other clients
+
+text-add
+  Emitted by: Client
+  Payload: { id, x, y, text, fontSize, color }
+  Server Action: Save to DB, broadcast to others
+  Received by: Other clients
+
+10.3 MANIPULATION EVENTS
+------------------------
+shape-update
+  Emitted by: Client
+  Payload: { shapeType, shapeId, updates: { x, y, ... } }
+  Server Action: Update in DB, broadcast to others
+  Received by: Other clients
+  Description: When user drags/moves a shape
+
+element-delete
+  Emitted by: Client
+  Payload: { elementType, elementId }
+  Server Action: Remove from DB, broadcast to others
+  Received by: Other clients
+  Description: Delete individual shape
+
+board-clear
+  Emitted by: Client
+  Payload: (none)
+  Server Action: Clear all data in DB, broadcast to all
+  Received by: All clients
+  Description: Clear entire board
+
+10.4 COLLABORATION EVENTS
+-------------------------
+cursor-move
+  Emitted by: Client
+  Payload: { x, y, userName }
+  Server Action: Broadcast to others (not saved)
+  Received by: Other clients
+  Description: Real-time cursor tracking
+
+chat-message
+  Emitted by: Client
+  Payload: { message }
+  Server Action: Broadcast to all (including sender)
+  Received by: All clients
+  Payload: { id, message, userId, userName, timestamp }
+
+board-state
+  Emitted by: Server
+  Received by: Client (on join)
+  Payload: { board: { lines, rectangles, circles, arrows, textNodes }, users: [] }
+  Description: Full board state when joining
+
+user-joined
+  Emitted by: Server (broadcast)
+  Received by: Other clients
+  Payload: { user: { id, name, email } }
+  Description: Notification when someone joins
+
+user-left
+  Emitted by: Server (broadcast)
+  Received by: Other clients
+  Payload: { user: { id, name } }
+  Description: Notification when someone leaves
+
+users-update
+  Emitted by: Server (to all in room)
+  Received by: All clients
+  Payload: [ { id, name, email, joinedAt }, ... ]
+  Description: Updated list of connected users
+
+10.5 UTILITY EVENTS
+-------------------
+undo
+  Emitted by: Client
+  Server Action: Broadcast to others (state management on client)
+  Received by: Other clients
+
+redo
+  Emitted by: Client
+  Server Action: Broadcast to others (state management on client)
+  Received by: Other clients
+
+error
+  Emitted by: Server
+  Received by: Client
+  Payload: { message }
+  Description: Error notification
+
+================================================================================
+11. WIREFRAMING & USER FLOW
+================================================================================
+
+11.1 HOME PAGE FLOW
+-------------------
+┌─────────────────────────────────────────────┐
+│              HOME PAGE                      │
+│                                             │
+│         [ColabCanvas Logo]                  │
+│                                             │
+│   Real-time Collaborative Whiteboard       │
+│                                             │
+│   [Get Started] [Login]                    │
+│                                             │
+│   Features:                                 │
+│   ✓ Real-time collaboration                │
+│   ✓ Rich drawing tools                     │
+│   ✓ Share with anyone                      │
+│   ✓ No installation required               │
+└─────────────────────────────────────────────┘
+         │                    │
+    [Get Started]         [Login]
+         │                    │
+         ▼                    ▼
+    SIGNUP PAGE          LOGIN PAGE
+
+11.2 AUTHENTICATION FLOW
+------------------------
+LOGIN PAGE                          SIGNUP PAGE
+┌───────────────────┐              ┌───────────────────┐
+│  Login to Canvas  │              │  Create Account   │
+│                   │              │                   │
+│  Email: [____]    │              │  Name: [_____]    │
+│  Password: [___]  │              │  Email: [____]    │
+│                   │              │  Password: [___]  │
+│  [Login]          │              │                   │
+│                   │              │  [Sign Up]        │
+│  New user? Signup │              │                   │
+└───────────────────┘              │  Have account?    │
+         │                         │  Login            │
+         │                         └───────────────────┘
+         │                                  │
+         └──────────────┬───────────────────┘
+                        │
+                   JWT Token
+                        │
+                        ▼
+                  DASHBOARD
+
+11.3 DASHBOARD LAYOUT
+---------------------
+┌──────────────────────────────────────────────────────────────┐
+│  [Logo] ColabCanvas         [Profile] [Theme] [Logout]       │
+├──────────────────────────────────────────────────────────────┤
+│                                                               │
+│  My Boards                              [+ Create New Board] │
+│                                                               │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐       │
+│  │   Board 1    │  │   Board 2    │  │   Board 3    │       │
+│  │              │  │              │  │              │       │
+│  │  "Meeting    │  │  "Project    │  │  "Brainstorm │       │
+│  │   Notes"     │  │   Planning"  │  │   Session"   │       │
+│  │              │  │              │  │              │       │
+│  │  [Open]      │  │  [Open]      │  │  [Open]      │       │
+│  │  [Delete]    │  │  [Delete]    │  │  [Delete]    │       │
+│  └──────────────┘  └──────────────┘  └──────────────┘       │
+│                                                               │
+└──────────────────────────────────────────────────────────────┘
+         │
+    [+ Create] or [Open]
+         │
+         ▼
+    BOARD CANVAS
+
+11.4 BOARD CANVAS LAYOUT
+------------------------
+┌──────────────────────────────────────────────────────────────┐
+│  [Logo] Board Title          [Save] [Share] [Export] [⚙]     │
+├──┬───────────────────────────────────────────────────────────┤
+│T │                                                            │
+│O │                  CANVAS AREA                              │
+│O │                                                            │
+│L │  • Drawing with selected tool                             │
+│B │  • Grid background                                        │
+│A │  • Shapes, lines, text                                    │
+│R │  • Zoom & Pan controls                                    │
+│  │  • Multi-user cursors                                     │
+│📌│                                                            │
+│✏️│                                                            │
+│🔲│                                                            │
+│⭕│                                                            │
+│➡️│                                                            │
+│T │                                                            │
+│🎨│                                                            │
+│📏│                                                            │
+│🧹│                                                            │
+└──┴───────────────────────────────────────────────────────────┘
+
+TOOLBAR BREAKDOWN:
+------------------
+┌────────────────┐
+│  SELECT (V)    │ ← Pan canvas & move shapes
+├────────────────┤
+│  PEN TOOLS     │
+│  • Pencil      │
+│  • Pen         │
+│  • Highlighter │
+│  • Marker      │
+├────────────────┤
+│  SHAPES        │
+│  • Rectangle   │
+│  • Circle      │
+│  • Triangle    │
+│  • Diamond     │
+│  • Arrow       │
+│  • Star        │
+│  • Hexagon     │
+├────────────────┤
+│  TEXT (T)      │
+├────────────────┤
+│  COLOR         │
+│  [🎨]          │
+├────────────────┤
+│  THICKNESS     │
+│  [━━━]         │
+├────────────────┤
+│  ERASER        │
+│  • Full        │
+│  • Partial     │
+└────────────────┘
+
+11.5 SHARING FLOW
+-----------------
+User clicks [Share] button
+         │
+         ▼
+┌─────────────────────────────────┐
+│      Share Board Modal          │
+│                                 │
+│  Invite Link:                   │
+│  [https://app.../board/uuid]    │
+│                     [Copy] 📋   │
+│                                 │
+│  Anyone with this link can      │
+│  edit the board                 │
+│                                 │
+│  [Update Link]  [Close]         │
+└─────────────────────────────────┘
+         │
+    User copies link
+         │
+         ▼
+    Shares via email/chat
+         │
+         ▼
+    Recipient opens link
+         │
+         ▼
+    ┌──────────────────┐
+    │  Opens board as  │
+    │  anonymous or    │
+    │  logged-in user  │
+    └──────────────────┘
+
+11.6 REAL-TIME COLLABORATION VIEW
+---------------------------------
+┌──────────────────────────────────────────────────────────────┐
+│  Meeting Notes Board    [Save: ✓] [👤 3 users online]        │
+├──┬───────────────────────────────────────────────────────────┤
+│T │                                                            │
+│O │    👆 User A (drawing)                                    │
+│O │        ✏️ ─────                                           │
+│L │                                                            │
+│  │                                                            │
+│  │                    📝 User B's text                       │
+│  │                                                            │
+│  │                                      👆 User C            │
+│  │                                         (selecting)       │
+│  │                                                            │
+│  │    ┌────────────┐                                         │
+│  │    │ Rectangle  │ ← Just drawn by User A                 │
+│  │    └────────────┘                                         │
+│  │                                                            │
+│  │  ⭕ Circle ← User C is dragging this                     │
+│  │                                                            │
+└──┴───────────────────────────────────────────────────────────┘
+
+CONNECTED USERS INDICATOR:
+┌─────────────────────┐
+│ 👥 3 Users Online   │
+│                     │
+│ • User A (You)      │
+│ • User B            │
+│ • User C            │
+└─────────────────────┘
+
+11.7 TOOL MODE SWITCHING
+------------------------
+DRAW MODE (Default):
+- Any drawing tool selected (pencil, pen, shapes)
+- Cursor: crosshair
+- Mouse drag: Creates new shapes
+- Existing shapes: NOT draggable
+- Purpose: Add new content
+
+SELECT MODE:
+- Select tool active
+- Cursor: grab hand
+- Mouse drag on empty space: Pan canvas
+- Mouse drag on shape: Move shape
+- Existing shapes: Draggable
+- Purpose: Manipulate existing content
+
+Flow:
+┌───────────────┐
+│  Drawing Mode │
+└───────┬───────┘
+        │ User clicks SELECT tool
+        ▼
+┌───────────────┐
+│  Select Mode  │
+└───────┬───────┘
+        │ User clicks any drawing tool
+        ▼
+┌───────────────┐
+│  Drawing Mode │
+└───────────────┘
+
+================================================================================
+12. SETUP INSTRUCTIONS
+================================================================================
+
+12.1 PREREQUISITES
+------------------
+- Node.js (v16 or higher)
+- MongoDB (local or Atlas account)
+- npm or yarn package manager
+- Code editor (VS Code recommended)
+
+12.2 INSTALLATION STEPS
+-----------------------
+1. Clone or extract the project
+   
+2. Setup Backend:
+   cd server
+   npm install
+   
+   Create .env file:
+   PORT=5000
+   MONGO_URI=your_mongodb_connection_string
+   JWT_SECRET=your_secret_key_here
+   
+   Start server:
+   npm start
+   
+   Server runs on: http://localhost:5000
+
+3. Setup Frontend:
+   cd client
+   npm install
+   
+   Create .env file (optional):
+   REACT_APP_BACKEND_URL=http://localhost:5000
+   
+   Start client:
+   npm start
+   
+   Client runs on: http://localhost:3000
+
+12.3 ENVIRONMENT VARIABLES
+--------------------------
+SERVER (.env):
+- PORT: Server port (default: 5000)
+- MONGO_URI: MongoDB connection string
+- JWT_SECRET: Secret key for JWT signing
+
+CLIENT (.env):
+- REACT_APP_BACKEND_URL: Backend API URL
+
+12.4 DATABASE SETUP
+-------------------
+1. Create MongoDB Atlas account (free tier)
+2. Create new cluster
+3. Create database user with password
+4. Whitelist your IP or allow from anywhere (0.0.0.0/0)
+5. Get connection string
+6. Replace <password> in connection string
+7. Add to server/.env as MONGO_URI
+
+12.5 RUNNING IN PRODUCTION
+--------------------------
+Build frontend:
+  cd client
+  npm run build
+  
+Deploy backend:
+  - Use services like Heroku, Railway, or Render
+  - Set environment variables in platform
+  - Deploy server code
+  
+Deploy frontend:
+  - Use Vercel, Netlify, or similar
+  - Point to build folder
+  - Set REACT_APP_BACKEND_URL to production API
+
+================================================================================
+13. KEY IMPLEMENTATION DETAILS
+================================================================================
+
+13.1 REAL-TIME SYNCHRONIZATION
+------------------------------
+Problem: How to keep all users in sync without delays or conflicts?
+
+Solution:
+1. Optimistic Updates: Client updates local state immediately
+2. Socket Emit: Send change to server asynchronously
+3. Database Save: Server persists to MongoDB with markModified()
+4. Broadcast: Server sends to all other connected clients
+5. State Update: Other clients apply change to their state
+6. Duplicate Prevention: Check for existing IDs before adding
+
+Result: Sub-100ms synchronization with no conflicts
+
+13.2 MONGOOSE NESTED DOCUMENT UPDATES
+-------------------------------------
+Problem: MongoDB doesn't detect changes in nested objects
+
+Solution:
+  board.data.lines.push(newLine);
+  board.markModified('data');  // Tell Mongoose to save
+  await board.save();
+
+Without markModified(), changes to board.data would not persist.
+
+13.3 ANONYMOUS USER SUPPORT
+---------------------------
+Problem: Allow non-logged users to collaborate
+
+Solution:
+1. Modified socketAuth middleware to allow connections without token
+2. Create anonymous user object: { _id: 'anonymous', name: 'Anonymous User' }
+3. Check allowAnonymous flag on boards
+4. Skip JWT verification for anonymous users
+
+13.4 SHAPE DRAGGING IN SELECT MODE
+----------------------------------
+Problem: Shapes interfering with drawing
+
+Solution:
+1. Add tool state tracking
+2. Set draggable={tool === TOOL_SELECT} on all shapes
+3. When drawing tools active: shapes not draggable
+4. When select tool active: shapes become draggable
+5. Different cursor per mode (crosshair vs grab)
+
+13.5 DATABASE QUERY OPTIMIZATION
+--------------------------------
+- Use indexes on frequently queried fields (boardId, email)
+- Lean queries where full documents not needed
+- Populate only required fields for collaborators
+- Batch socket emissions to reduce network calls
+
+13.6 ERROR HANDLING
+-------------------
+- Try-catch blocks in all async operations
+- Socket error events for connection issues
+- HTTP error responses with meaningful messages
+- Client-side error boundaries (to be implemented)
+- Logging for debugging
+
+13.7 SECURITY MEASURES
+---------------------
+- Password hashing with bcrypt (10 rounds)
+- JWT expiration (30 days)
+- CORS configuration
+- Input validation (to be enhanced)
+- SQL injection prevention (NoSQL by default)
+- XSS prevention (React escapes by default)
+
+================================================================================
+FUTURE ENHANCEMENTS
+================================================================================
+
+Planned Features:
+- [ ] Video/Audio chat integration
+- [ ] Advanced shape transforms (rotate, scale)
+- [ ] Layers and grouping
+- [ ] Templates and assets library
+- [ ] Version history and time travel
+- [ ] Offline mode with sync
+- [ ] Mobile app (React Native)
+- [ ] Real-time voice commands
+- [ ] AI-powered shape recognition
+- [ ] Export to PDF, SVG, PNG
+- [ ] Board templates
+- [ ] Permission granularity (view-only users)
+- [ ] Board search and filtering
+- [ ] Presentation mode
+- [ ] Sticky notes component
+- [ ] Screen sharing integration
+
+Technical Improvements:
+- [ ] Redis for session management
+- [ ] WebRTC for peer-to-peer
+- [ ] Service workers for PWA
+- [ ] TypeScript migration
+- [ ] Unit and E2E tests
+- [ ] Performance monitoring
+- [ ] CDN for static assets
+- [ ] Load balancing for socket servers
+
+================================================================================
+END OF DOCUMENTATION
+================================================================================
+
+For questions or support, please contact the development team.
+Last Updated: December 21, 2025
+Version: 1.0.0

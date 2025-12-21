@@ -75,9 +75,17 @@ const whiteboardEvents = (io) => {
           joinedAt: new Date()
         });
 
-        // Send current board state to the joining user
+        // Reload board from database to get the absolute latest state
+        let latestBoard;
+        if (isObjectId) {
+          latestBoard = await Board.findById(boardId);
+        } else if (isUUID) {
+          latestBoard = await Board.findOne({ boardId: boardId });
+        }
+
+        // Send current board state to the joining user with latest data
         socket.emit('board-state', {
-          board: board.data,
+          board: latestBoard ? latestBoard.data : board.data,
           users: Array.from(boardUsers.get(boardId).values())
         });
 
@@ -132,11 +140,13 @@ const whiteboardEvents = (io) => {
           
           if (board) {
             if (!board.data.lines) board.data.lines = [];
-            board.data.lines.push({
+            const lineData = {
               ...data,
               id: data.id || `line_${Date.now()}_${Math.random()}`,
               timestamp: new Date()
-            });
+            };
+            board.data.lines.push(lineData);
+            board.markModified('data');
             await board.save();
             console.log(`✏️ Line drawn on board ${socket.currentBoard} by ${socket.user.name}`);
           }
@@ -172,6 +182,7 @@ const whiteboardEvents = (io) => {
               id: data.id || `rect_${Date.now()}_${Math.random()}`,
               timestamp: new Date()
             });
+            board.markModified('data');
             await board.save();
             console.log(`📱 Rectangle drawn on board ${socket.currentBoard} by ${socket.user.name}`);
           }
@@ -199,6 +210,7 @@ const whiteboardEvents = (io) => {
               id: data.id || `circle_${Date.now()}_${Math.random()}`,
               timestamp: new Date()
             });
+            board.markModified('data');
             await board.save();
           }
 
@@ -225,6 +237,7 @@ const whiteboardEvents = (io) => {
               id: data.id || `arrow_${Date.now()}_${Math.random()}`,
               timestamp: new Date()
             });
+            board.markModified('data');
             await board.save();
           }
 
@@ -251,6 +264,7 @@ const whiteboardEvents = (io) => {
               id: data.id || `text_${Date.now()}_${Math.random()}`,
               timestamp: new Date()
             });
+            board.markModified('data');
             await board.save();
           }
 
@@ -299,6 +313,7 @@ const whiteboardEvents = (io) => {
             } else if (data.elementType === 'text' && board.data.textNodes) {
               board.data.textNodes = board.data.textNodes.filter(text => text.id !== data.elementId);
             }
+            board.markModified('data');
             await board.save();
           }
 
@@ -326,6 +341,7 @@ const whiteboardEvents = (io) => {
               circles: [],
               arrows: []
             };
+            board.markModified('data');
             await board.save();
           }
 
@@ -335,6 +351,65 @@ const whiteboardEvents = (io) => {
           });
         } catch (error) {
           console.error('Board clear error:', error);
+        }
+      }
+    });
+
+    // Handle shape updates (drag, transform)
+    socket.on('shape-update', async (data) => {
+      if (socket.currentBoard) {
+        try {
+          // Find board by either ObjectId or UUID
+          let board = null;
+          if (mongoose.Types.ObjectId.isValid(socket.currentBoard)) {
+            board = await Board.findById(socket.currentBoard);
+          } else {
+            board = await Board.findOne({ boardId: socket.currentBoard });
+          }
+
+          if (board) {
+            // Update the shape in the database
+            const { shapeType, shapeId, updates } = data;
+            
+            if (shapeType === 'line' && board.data.lines) {
+              const index = board.data.lines.findIndex(item => item.id === shapeId);
+              if (index !== -1) {
+                board.data.lines[index] = { ...board.data.lines[index], ...updates };
+              }
+            } else if (shapeType === 'rect' && board.data.rectangles) {
+              const index = board.data.rectangles.findIndex(item => item.id === shapeId);
+              if (index !== -1) {
+                board.data.rectangles[index] = { ...board.data.rectangles[index], ...updates };
+              }
+            } else if (shapeType === 'circle' && board.data.circles) {
+              const index = board.data.circles.findIndex(item => item.id === shapeId);
+              if (index !== -1) {
+                board.data.circles[index] = { ...board.data.circles[index], ...updates };
+              }
+            } else if (shapeType === 'arrow' && board.data.arrows) {
+              const index = board.data.arrows.findIndex(item => item.id === shapeId);
+              if (index !== -1) {
+                board.data.arrows[index] = { ...board.data.arrows[index], ...updates };
+              }
+            } else if (shapeType === 'text' && board.data.textNodes) {
+              const index = board.data.textNodes.findIndex(item => item.id === shapeId);
+              if (index !== -1) {
+                board.data.textNodes[index] = { ...board.data.textNodes[index], ...updates };
+              }
+            }
+
+            board.markModified('data');
+            await board.save();
+          }
+
+          // Broadcast update to other users
+          socket.to(socket.currentBoard).emit('shape-update', {
+            ...data,
+            userId: socket.user._id,
+            userName: socket.user.name
+          });
+        } catch (error) {
+          console.error('Shape update error:', error);
         }
       }
     });

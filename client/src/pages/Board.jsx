@@ -85,6 +85,23 @@ const Board = () => {
   const { isAuthenticated, token } = useAuth();
   const { colors, shadows, isDark } = useTheme();
 
+  // Debug logging for boardId
+  useEffect(() => {
+    console.log('🆔 Board ID from params:', boardId);
+    if (!boardId) {
+      console.warn('⚠️ No boardId found in URL parameters');
+    }
+  }, [boardId]);
+
+  // Redirect to dashboard if no boardId is provided
+  useEffect(() => {
+    if (isAuthenticated && boardId === undefined) {
+      console.log('🏠 No board ID, redirecting to dashboard...');
+      // You might want to add redirect logic here if needed
+      // navigate('/dashboard');
+    }
+  }, [boardId, isAuthenticated]);
+
   // Canvas state
   const [tool, setTool] = useState(TOOL_PENCIL);
   const [lines, setLines] = useState([]);
@@ -120,10 +137,6 @@ const Board = () => {
   const [showShareModal, setShowShareModal] = useState(false);
   const [inviteUrl, setInviteUrl] = useState("");
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
-  const [shareSettings, setShareSettings] = useState({
-    allowAnonymous: true,
-    defaultPermission: 'editor'
-  });
 
   const stageRef = useRef();
   const [isPanning, setIsPanning] = useState(false);
@@ -164,20 +177,46 @@ const Board = () => {
 
   // Socket connection and event handlers
   useEffect(() => {
-    if (isAuthenticated && token && !socketInitialized.current) {
+    // Allow socket connection for both authenticated and anonymous users
+    if (!socketInitialized.current) {
       console.log('🔌 Initializing socket connection...');
       socketInitialized.current = true;
       
-      socketService.connect(token);
+      // Connect with token if available, otherwise connect anonymously
+      const socket = socketService.connect(token || null);
+
+      // Connection status handlers
+      socketService.on('connect', () => {
+        console.log('✅ Socket connected');
+        // Rejoin board if we were in one
+        if (boardId && !boardJoined.current) {
+          setTimeout(() => {
+            console.log('🔄 Rejoining board after reconnect:', boardId);
+            socketService.joinBoard(boardId);
+            boardJoined.current = true;
+          }, 500);
+        }
+      });
+
+      socketService.on('disconnect', (reason) => {
+        console.log('❌ Socket disconnected:', reason);
+        boardJoined.current = false;
+      });
+
+      socketService.on('connect_error', (error) => {
+        console.error('🔴 Socket connection error:', error);
+      });
 
       // Socket event listeners
       socketService.on('board-state', (data) => {
+        console.log('📊 Received board-state:', data);
         if (data.board) {
           setLines(data.board.lines || []);
           setRects(data.board.rectangles || []);
           setCircles(data.board.circles || []);
           setArrows(data.board.arrows || []);
           setTextNodes(data.board.textNodes || []);
+          console.log('✅ Board state updated from socket');
         }
         if (data.users) {
           setConnectedUsers(data.users);
@@ -197,33 +236,98 @@ const Board = () => {
       });
 
       socketService.on('line-draw', (data) => {
-        setLines(prev => [...prev, { ...data, id: data.id || `line_${Date.now()}_${Math.random()}` }]);
+        console.log('✏️ Received line-draw:', data);
+        setLines(prev => {
+          // Avoid duplicates
+          if (prev.some(line => line.id === data.id)) {
+            return prev;
+          }
+          return [...prev, { ...data, id: data.id || `line_${Date.now()}_${Math.random()}` }];
+        });
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('rect-draw', (data) => {
-        setRects(prev => [...prev, { ...data, id: data.id || `rect_${Date.now()}_${Math.random()}` }]);
+        console.log('📦 Received rect-draw:', data);
+        setRects(prev => {
+          // Avoid duplicates
+          if (prev.some(rect => rect.id === data.id)) {
+            return prev;
+          }
+          return [...prev, { ...data, id: data.id || `rect_${Date.now()}_${Math.random()}` }];
+        });
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('circle-draw', (data) => {
-        setCircles(prev => [...prev, { ...data, id: data.id || `circle_${Date.now()}_${Math.random()}` }]);
+        console.log('⭕ Received circle-draw:', data);
+        setCircles(prev => {
+          // Avoid duplicates
+          if (prev.some(circle => circle.id === data.id)) {
+            return prev;
+          }
+          return [...prev, { ...data, id: data.id || `circle_${Date.now()}_${Math.random()}` }];
+        });
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('arrow-draw', (data) => {
-        setArrows(prev => [...prev, { ...data, id: data.id || `arrow_${Date.now()}_${Math.random()}` }]);
+        console.log('➡️ Received arrow-draw:', data);
+        setArrows(prev => {
+          // Avoid duplicates
+          if (prev.some(arrow => arrow.id === data.id)) {
+            return prev;
+          }
+          return [...prev, { ...data, id: data.id || `arrow_${Date.now()}_${Math.random()}` }];
+        });
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('text-add', (data) => {
-        setTextNodes(prev => [...prev, { ...data, id: data.id || `text_${Date.now()}_${Math.random()}` }]);
+        console.log('📝 Received text-add:', data);
+        setTextNodes(prev => {
+          // Avoid duplicates
+          if (prev.some(text => text.id === data.id)) {
+            return prev;
+          }
+          return [...prev, { ...data, id: data.id || `text_${Date.now()}_${Math.random()}` }];
+        });
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
+      });
+
+      socketService.on('shape-update', (data) => {
+        console.log('🔄 Received shape-update:', data);
+        const { shapeType, shapeId, updates } = data;
+        
+        if (shapeType === 'line') {
+          setLines(prev => prev.map(shape => 
+            shape.id === shapeId ? { ...shape, ...updates } : shape
+          ));
+        } else if (shapeType === 'rect') {
+          setRects(prev => prev.map(shape => 
+            shape.id === shapeId ? { ...shape, ...updates } : shape
+          ));
+        } else if (shapeType === 'circle') {
+          setCircles(prev => prev.map(shape => 
+            shape.id === shapeId ? { ...shape, ...updates } : shape
+          ));
+        } else if (shapeType === 'arrow') {
+          setArrows(prev => prev.map(shape => 
+            shape.id === shapeId ? { ...shape, ...updates } : shape
+          ));
+        } else if (shapeType === 'text') {
+          setTextNodes(prev => prev.map(shape => 
+            shape.id === shapeId ? { ...shape, ...updates } : shape
+          ));
+        }
+        
+        setSaveStatus("syncing");
+        setTimeout(() => setSaveStatus("saved"), 500);
       });
 
       socketService.on('cursor-move', (data) => {
@@ -238,7 +342,28 @@ const Board = () => {
         });
       });
 
+      socketService.on('element-delete', (data) => {
+        console.log('🗑️ Received element-delete:', data);
+        const { elementType, elementId } = data;
+        
+        if (elementType === 'line') {
+          setLines(prev => prev.filter(item => item.id !== elementId));
+        } else if (elementType === 'rect') {
+          setRects(prev => prev.filter(item => item.id !== elementId));
+        } else if (elementType === 'circle') {
+          setCircles(prev => prev.filter(item => item.id !== elementId));
+        } else if (elementType === 'arrow') {
+          setArrows(prev => prev.filter(item => item.id !== elementId));
+        } else if (elementType === 'text') {
+          setTextNodes(prev => prev.filter(item => item.id !== elementId));
+        }
+        
+        setSaveStatus("syncing");
+        setTimeout(() => setSaveStatus("saved"), 500);
+      });
+
       socketService.on('board-clear', () => {
+        console.log('🧹 Received board-clear');
         setLines([]);
         setRects([]);
         setCircles([]);
@@ -260,14 +385,15 @@ const Board = () => {
         socketService.disconnect();
       };
     }
-  }, [isAuthenticated, token]);
+  }, [token, boardId]); // React to token and boardId changes
 
   // Board joining effect - run when boardId changes
   useEffect(() => {
     let joinAttemptTimeout;
     
     const attemptJoinBoard = () => {
-      if (isAuthenticated && token && boardId && socketService.connected && !boardJoined.current) {
+      // Allow joining for both authenticated and anonymous users
+      if (boardId && socketService.connected && !boardJoined.current) {
         console.log('🏠 Attempting to join board:', boardId);
         boardJoined.current = true;
         socketService.joinBoard(boardId);
@@ -276,7 +402,7 @@ const Board = () => {
       return false;
     };
 
-    if (isAuthenticated && token && boardId && socketInitialized.current) {
+    if (boardId && socketInitialized.current) {
       // Reset board joined flag when board changes
       if (boardJoined.current && socketService.currentBoard !== boardId) {
         boardJoined.current = false;
@@ -300,7 +426,7 @@ const Board = () => {
         boardJoined.current = false;
       }
     };
-  }, [boardId, isAuthenticated, token]);
+  }, [boardId]); // Only react to boardId changes
 
   // Auto-save functionality
   useEffect(() => {
@@ -321,7 +447,7 @@ const Board = () => {
           setSaveStatus("error");
           console.error("Auto-save error:", err);
         }
-      }, 2000);
+      }, 500); // Reduced from 2000ms to 500ms for faster saves
 
       return () => clearTimeout(saveTimeout);
     }
@@ -948,6 +1074,46 @@ const Board = () => {
   const handleColorChange = (e) => setColor(e.target.value);
   const handleThicknessChange = (e) => setThickness(Number(e.target.value));
 
+  // Shape drag handlers
+  const handleShapeDragEnd = (shapeType, shapeId, e) => {
+    const node = e.target;
+    const updates = {
+      x: node.x(),
+      y: node.y()
+    };
+
+    // Update local state
+    if (shapeType === 'rect') {
+      setRects(prev => prev.map(shape => 
+        shape.id === shapeId ? { ...shape, ...updates } : shape
+      ));
+    } else if (shapeType === 'circle') {
+      setCircles(prev => prev.map(shape => 
+        shape.id === shapeId ? { ...shape, ...updates } : shape
+      ));
+    } else if (shapeType === 'arrow') {
+      setArrows(prev => prev.map(shape => 
+        shape.id === shapeId ? { ...shape, ...updates } : shape
+      ));
+    } else if (shapeType === 'text') {
+      setTextNodes(prev => prev.map(shape => 
+        shape.id === shapeId ? { ...shape, ...updates } : shape
+      ));
+    }
+
+    // Emit socket update
+    if (socketService.connected) {
+      socketService.emitShapeUpdate({
+        shapeType,
+        shapeId,
+        updates
+      });
+    }
+
+    setSaveStatus("syncing");
+    setTimeout(() => setSaveStatus("saved"), 500);
+  };
+
   // Text input handling
   const handleTextInput = (e) => setInputValue(e.target.value);
   const handleTextInputBlur = () => {
@@ -979,9 +1145,15 @@ const Board = () => {
 
   // Share functionality
   const handleGenerateInviteLink = async () => {
+    if (!boardId) {
+      console.error('No boardId available for generating invite link');
+      setError('Board not loaded. Please wait and try again.');
+      return;
+    }
+
     try {
       setIsGeneratingLink(true);
-      const response = await boardService.generateInviteLink(boardId, shareSettings);
+      const response = await boardService.generateInviteLink(boardId, {});
       setInviteUrl(response.inviteUrl);
       setError("");
     } catch (error) {
@@ -1004,10 +1176,10 @@ const Board = () => {
 
   // Generate invite link when modal opens
   useEffect(() => {
-    if (showShareModal && !inviteUrl) {
+    if (showShareModal && !inviteUrl && boardId) {
       handleGenerateInviteLink();
     }
-  }, [showShareModal]);
+  }, [showShareModal, boardId]);
 
   // Loading state
   if (loading) {
@@ -1041,6 +1213,19 @@ const Board = () => {
               Try Again
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading state while boardId is being parsed from URL
+  if (!boardId && isAuthenticated) {
+    return (
+      <div className={`h-screen flex items-center justify-center ${colors.bg.secondary}`}>
+        <div className={`${colors.bg.card} rounded-lg p-8 ${shadows.card} text-center`}>
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500 mx-auto mb-4"></div>
+          <h2 className={`text-lg font-semibold ${colors.text.primary} mb-2`}>Loading Board...</h2>
+          <p className={`${colors.text.secondary}`}>Please wait while we load your board</p>
         </div>
       </div>
     );
@@ -1536,11 +1721,14 @@ const Board = () => {
 
             {/* Share button */}
             <motion.button
-              onClick={() => setShowShareModal(true)}
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 hover:${colors.bg.tertiary} transition-all duration-200 border ${colors.border.primary}`}
-              title="Share Board"
+              onClick={() => boardId && setShowShareModal(true)}
+              whileHover={boardId ? { scale: 1.05 } : {}}
+              whileTap={boardId ? { scale: 0.95 } : {}}
+              disabled={!boardId}
+              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 ${
+                boardId ? `hover:${colors.bg.tertiary} cursor-pointer` : 'opacity-50 cursor-not-allowed'
+              } transition-all duration-200 border ${colors.border.primary}`}
+              title={boardId ? "Share Board" : "Board not loaded"}
             >
               <svg className={`w-6 h-6 ${colors.text.primary}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.684 13.342C8.886 12.938 9 12.482 9 12c0-.482-.114-.938-.316-1.342m0 2.684a3 3 0 110-2.684m0 2.684l6.632 3.316m-6.632-6l6.632-3.316m0 0a3 3 0 105.367-2.684 3 3 0 00-5.367 2.684zm0 9.316a3 3 0 105.367 2.684 3 3 0 00-5.367-2.684z" />
@@ -1565,11 +1753,13 @@ const Board = () => {
           style={{
             cursor: tool === TOOL_SELECT
               ? (isPanning ? "grabbing" : "grab")
-              : tool === TOOL_PENCIL
+              : tool === TOOL_PENCIL || tool === TOOL_PEN || tool === TOOL_MARKER || tool === TOOL_HIGHLIGHTER
               ? "crosshair"
-              : tool === TOOL_ERASER
+              : tool === TOOL_ERASER || tool === TOOL_PARTIAL_ERASER
               ? "cell"
-              : "default",
+              : tool === TOOL_TEXT
+              ? "text"
+              : "crosshair",
           }}
         >
           {/* Grid Layer */}
@@ -1622,6 +1812,18 @@ const Board = () => {
                     strokeWidth={rect.thickness}
                     fill={rect.fill || 'transparent'}
                     closed={true}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('rect', rect.id, e)}
+                    onMouseEnter={(e) => {
+                      if (tool === TOOL_SELECT) {
+                        e.target.getStage().container().style.cursor = 'move';
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (tool === TOOL_SELECT) {
+                        e.target.getStage().container().style.cursor = 'grab';
+                      }
+                    }}
                   />
                 );
               }
@@ -1635,6 +1837,18 @@ const Board = () => {
                   stroke={rect.color}
                   strokeWidth={rect.thickness}
                   fill={rect.fill || 'transparent'}
+                  draggable={tool === TOOL_SELECT}
+                  onDragEnd={(e) => handleShapeDragEnd('rect', rect.id, e)}
+                  onMouseEnter={(e) => {
+                    if (tool === TOOL_SELECT) {
+                      e.target.getStage().container().style.cursor = 'move';
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    if (tool === TOOL_SELECT) {
+                      e.target.getStage().container().style.cursor = 'grab';
+                    }
+                  }}
                 />
               );
             })}
@@ -1652,6 +1866,8 @@ const Board = () => {
                     stroke={shape.color}
                     strokeWidth={shape.thickness}
                     fill={shape.fill || 'transparent'}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('circle', shape.id, e)}
                   />
                 );
               } else if (shape.type === 'star') {
@@ -1666,6 +1882,8 @@ const Board = () => {
                     stroke={shape.color}
                     strokeWidth={shape.thickness}
                     fill={shape.fill || 'transparent'}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('circle', shape.id, e)}
                   />
                 );
               } else if (shape.type === 'hexagon') {
@@ -1678,6 +1896,8 @@ const Board = () => {
                     strokeWidth={shape.thickness}
                     fill={shape.fill || 'transparent'}
                     closed={true}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('circle', shape.id, e)}
                   />
                 );
               }
@@ -1691,6 +1911,8 @@ const Board = () => {
                   stroke={shape.color}
                   strokeWidth={shape.thickness}
                   fill={shape.fill || 'transparent'}
+                  draggable={tool === TOOL_SELECT}
+                  onDragEnd={(e) => handleShapeDragEnd('circle', shape.id, e)}
                 />
               );
             })}
@@ -1704,6 +1926,8 @@ const Board = () => {
                     points={shape.points}
                     stroke={shape.color}
                     strokeWidth={shape.thickness}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('arrow', shape.id, e)}
                   />
                 );
               } else if (shape.type === 'triangle') {
@@ -1715,6 +1939,8 @@ const Board = () => {
                     strokeWidth={shape.thickness}
                     fill={shape.fill || 'transparent'}
                     closed={true}
+                    draggable={tool === TOOL_SELECT}
+                    onDragEnd={(e) => handleShapeDragEnd('arrow', shape.id, e)}
                   />
                 );
               }
@@ -1728,6 +1954,8 @@ const Board = () => {
                   fill={shape.color}
                   pointerLength={20}
                   pointerWidth={20}
+                  draggable={tool === TOOL_SELECT}
+                  onDragEnd={(e) => handleShapeDragEnd('arrow', shape.id, e)}
                 />
               );
             })}
@@ -1741,7 +1969,8 @@ const Board = () => {
                 text={node.text}
                 fontSize={node.fontSize || 22 / stageScale}
                 fill={node.color || "#222"}
-                draggable
+                draggable={tool === TOOL_SELECT}
+                onDragEnd={(e) => handleShapeDragEnd('text', node.id, e)}
               />
             ))}
 
@@ -2026,37 +2255,9 @@ const Board = () => {
                     </div>
                   </div>
 
-                  {/* Share Settings */}
-                  <div className="space-y-3">
-                    <h4 className={`text-sm font-medium ${colors.text.primary}`}>Share Settings</h4>
-                    
-                    {/* Anonymous Access */}
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <label className={`text-sm ${colors.text.primary}`}>Allow anonymous access</label>
-                        <p className={`text-xs ${colors.text.secondary}`}>Let anyone with the link join without signing in</p>
-                      </div>
-                      <input
-                        type="checkbox"
-                        checked={shareSettings.allowAnonymous}
-                        onChange={(e) => setShareSettings(prev => ({...prev, allowAnonymous: e.target.checked}))}
-                        className="w-4 h-4 text-blue-600 bg-gray-100 border-gray-300 rounded focus:ring-blue-500"
-                      />
-                    </div>
-
-                    {/* Default Permission */}
-                    <div>
-                      <label className={`block text-sm ${colors.text.primary} mb-1`}>Default permission</label>
-                      <select
-                        value={shareSettings.defaultPermission}
-                        onChange={(e) => setShareSettings(prev => ({...prev, defaultPermission: e.target.value}))}
-                        className={`w-full px-3 py-2 border ${colors.border.primary} rounded-lg ${colors.bg.primary} ${colors.text.primary} text-sm`}
-                      >
-                        <option value="viewer">Viewer (can only view)</option>
-                        <option value="editor">Editor (can edit)</option>
-                      </select>
-                    </div>
-                  </div>
+                  <p className={`text-sm ${colors.text.secondary}`}>
+                    Anyone with this link can edit the board
+                  </p>
 
                   {/* Generate New Link Button */}
                   <button

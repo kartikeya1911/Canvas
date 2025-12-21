@@ -465,14 +465,8 @@ const generateInviteLink = async (req, res) => {
       board.boardId = require('crypto').randomUUID();
     }
 
-    // Update board settings if provided
-    const { allowAnonymous, defaultPermission } = req.body;
-    if (allowAnonymous !== undefined) {
-      board.allowAnonymous = allowAnonymous;
-    }
-    if (defaultPermission && ['viewer', 'editor'].includes(defaultPermission)) {
-      board.defaultPermission = defaultPermission;
-    }
+    // Always allow anonymous access and editing for anyone with the link
+    board.allowAnonymous = true;
 
     await board.save();
 
@@ -481,8 +475,7 @@ const generateInviteLink = async (req, res) => {
       inviteUrl: board.getInviteUrl(),
       boardId: board.boardId,
       settings: {
-        allowAnonymous: board.allowAnonymous,
-        defaultPermission: board.defaultPermission
+        allowAnonymous: board.allowAnonymous
       }
     });
   } catch (error) {

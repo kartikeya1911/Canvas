@@ -9,7 +9,7 @@ class SocketService {
   }
 
   connect(token) {
-    // Prevent multiple connections with the same token
+    // Prevent multiple connections with the same token (or no token)
     if (this.socket?.connected && this.socket.auth?.token === token) {
       console.log('🔌 Already connected with the same token');
       return this.socket;
@@ -22,14 +22,22 @@ class SocketService {
 
     const serverUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
     
-    console.log('🔌 Connecting to server...');
-    this.socket = io(serverUrl, {
-      auth: { token },
+    console.log('🔌 Connecting to server...', token ? 'with authentication' : 'anonymously');
+    
+    // Create socket connection with or without token
+    const socketOptions = {
       transports: ['websocket', 'polling'],
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000
-    });
+    };
+    
+    // Only add auth if token exists
+    if (token) {
+      socketOptions.auth = { token };
+    }
+    
+    this.socket = io(serverUrl, socketOptions);
 
     this.socket.on('connect', () => {
       console.log('🔌 Connected to server');
@@ -136,6 +144,12 @@ class SocketService {
   emitElementDelete(data) {
     if (this.socket && this.currentBoard) {
       this.socket.emit('element-delete', data);
+    }
+  }
+
+  emitShapeUpdate(data) {
+    if (this.socket && this.currentBoard) {
+      this.socket.emit('shape-update', data);
     }
   }
 

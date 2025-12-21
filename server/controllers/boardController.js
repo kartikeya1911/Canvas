@@ -474,11 +474,17 @@ const generateInviteLink = async (req, res) => {
       });
     }
 
-    // Only owner can generate invite links
-    if (board.owner.toString() !== req.user.id) {
+    // Check if user is owner or has admin/editor access
+    const isOwner = board.owner.toString() === req.user.id;
+    const isEditor = board.collaborators.some(collab => 
+      collab.user && collab.user.toString() === req.user.id && 
+      ['editor', 'admin'].includes(collab.role)
+    );
+
+    if (!isOwner && !isEditor) {
       return res.status(403).json({
         success: false,
-        message: 'Only board owner can generate invite links'
+        message: 'You do not have permission to generate invite links for this board'
       });
     }
 

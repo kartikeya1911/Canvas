@@ -140,7 +140,6 @@ const BoardSchema = new mongoose.Schema({
   timestamps: true
 });
 
-BoardSchema.index({ boardId: 1 });
 BoardSchema.index({ owner: 1 });
 BoardSchema.index({ 'collaborators.user': 1 });
 

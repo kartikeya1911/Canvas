@@ -31,11 +31,7 @@ const CLIENT_PORT = 3000;
 const allowedOrigins = [
   "http://localhost:3000",
   `http://${LOCAL_IP}:${CLIENT_PORT}`,
-  process.env.CLIENT_URL,
-  "https://colabcanvas.vercel.app",
-  "https://collab-canvas-lovat.vercel.app",
-  "https://collab-canvas-9mo2qnika-jainkartikeya9-gmailcoms-projects.vercel.app",
-  "https://colabcanvas-c81bl9alj-jainkartikeya9-gmailcoms-projects.vercel.app"
+  process.env.CLIENT_URL
 ].filter(Boolean);
 
 // CORS origin checker function to allow all Vercel preview URLs
@@ -49,8 +45,13 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // Check if origin matches Vercel preview URL pattern (any vercel.app subdomain)
+    // Check if origin matches any Vercel deployment URL pattern
     if (origin && origin.match(/https:\/\/.*\.vercel\.app$/)) {
+      return callback(null, true);
+    }
+    
+    // Allow localhost for development
+    if (origin && origin.match(/^http:\/\/localhost(:\d+)?$/)) {
       return callback(null, true);
     }
     

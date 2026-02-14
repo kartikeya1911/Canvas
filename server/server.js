@@ -33,6 +33,8 @@ const allowedOrigins = [
   `http://${LOCAL_IP}:${CLIENT_PORT}`,
   process.env.CLIENT_URL,
   "https://colabcanvas.vercel.app",
+  "https://collab-canvas-lovat.vercel.app",
+  "https://collab-canvas-9mo2qnika-jainkartikeya9-gmailcoms-projects.vercel.app",
   "https://colabcanvas-c81bl9alj-jainkartikeya9-gmailcoms-projects.vercel.app"
 ].filter(Boolean);
 
@@ -47,8 +49,8 @@ const corsOptions = {
       return callback(null, true);
     }
     
-    // Check if origin matches Vercel preview URL pattern
-    if (origin.match(/https:\/\/colabcanvas.*\.vercel\.app$/)) {
+    // Check if origin matches Vercel preview URL pattern (any vercel.app subdomain)
+    if (origin && origin.match(/https:\/\/.*\.vercel\.app$/)) {
       return callback(null, true);
     }
     

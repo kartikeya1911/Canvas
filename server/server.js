@@ -72,7 +72,8 @@ const corsOptions = {
 };
 
 const io = socketIo(server, {
-  cors: corsOptions
+  cors: corsOptions,
+  transports: ['websocket', 'polling']
 });
 
 // Connect to MongoDB database
@@ -107,11 +108,9 @@ app.get('/api/health', (req, res) => {
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
-if (process.env.NODE_ENV === 'production' && process.env.CLIENT_URL) {
-  global.CLIENT_URL = process.env.CLIENT_URL;
-} else {
-  global.CLIENT_URL = `http://${LOCAL_IP}:${CLIENT_PORT}`;
-}
+// In production/cloud: CLIENT_URL env var is set by hosting platform (e.g. Render)
+// In local dev without CLIENT_URL set: fall back to localhost (never the auto-detected LAN IP)
+global.CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
 server.listen(PORT, HOST, () => {
   console.log('\n╔═══════════════════════════════════════════════════════════╗');

@@ -75,7 +75,7 @@ const getBoards = async (req, res) => {
     })
     .populate('owner', 'name email')
     .populate('collaborators.user', 'name email')
-    .sort({ lastModified: -1 })
+    .sort({ updatedAt: -1 })
     .skip(skip)
     .limit(limit)
     .select('-data'); // Exclude board data for list view

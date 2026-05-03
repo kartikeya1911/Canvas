@@ -32,7 +32,7 @@ function App() {
       {/* AuthProvider: Makes user authentication state available to all child components */}
       <AuthProvider>
         {/* BrowserRouter: Enables navigation without page refresh (SPA behavior) */}
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           {/* Main container with responsive dark mode support */}
           <div className="min-h-screen bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 transition-colors duration-200">
             {/* Routes: Define URL paths and their corresponding components */}

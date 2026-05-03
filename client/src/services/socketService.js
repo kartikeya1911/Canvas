@@ -20,16 +20,17 @@ class SocketService {
       this.disconnect();
     }
 
-    const serverUrl = process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
+    const serverUrl = process.env.REACT_APP_SOCKET_URL || process.env.REACT_APP_BACKEND_URL || 'http://localhost:5000';
     
-    console.log('🔌 Connecting to server...', token ? 'with authentication' : 'anonymously');
+    console.log('🔌 Connecting to server:', serverUrl, token ? 'with authentication' : 'anonymously');
     
     // Create socket connection with or without token
     const socketOptions = {
       transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5,
-      reconnectionDelay: 1000
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 5000
     };
     
     // Only add auth if token exists

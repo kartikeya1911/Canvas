@@ -26,7 +26,9 @@ class SocketService {
     
     // Create socket connection with or without token
     const socketOptions = {
-      transports: ['websocket', 'polling'],
+      // Force 'websocket' transport to bypass Render proxy/load balancer polling issues
+      transports: ['websocket'], 
+      withCredentials: true,
       reconnection: true,
       reconnectionAttempts: 10,
       reconnectionDelay: 1000,

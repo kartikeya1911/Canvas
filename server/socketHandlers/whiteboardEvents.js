@@ -58,10 +58,21 @@ const whiteboardEvents = (io) => {
 
         console.log('✅ Board found:', board.title);
 
-        const hasAccess = board.owner.toString() === socket.user._id.toString() ||
-                         board.collaborators.some(collab => collab.user && collab.user.toString() === socket.user._id.toString()) ||
-                         board.isPublic ||
-                         board.allowAnonymous;
+        // Determine user role and attach to socket
+        let userRole = 'viewer';
+        if (board.owner.toString() === socket.user._id.toString()) {
+          userRole = 'owner';
+        } else {
+          const collaborator = board.collaborators.find(collab => collab.user && collab.user.toString() === socket.user._id.toString());
+          if (collaborator) {
+            userRole = collaborator.role;
+          } else if (board.isPublic || board.allowAnonymous) {
+            userRole = board.defaultPermission || 'editor';
+          }
+        }
+        socket.userRole = userRole;
+
+        const hasAccess = ['viewer', 'editor', 'admin', 'owner'].includes(userRole);
 
         if (!hasAccess) {
           console.log('🚫 Access denied for user:', socket.user.name);
@@ -122,6 +133,7 @@ const whiteboardEvents = (io) => {
 
     // Handle freehand drawing events (broadcast only, no persistence needed for strokes in-progress)
     socket.on('drawing', (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         socket.to(socket.currentBoard).emit('drawing', {
           ...data,
@@ -134,6 +146,7 @@ const whiteboardEvents = (io) => {
 
     // Handle line drawing (persist + broadcast)
     socket.on('line-draw', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -162,6 +175,7 @@ const whiteboardEvents = (io) => {
 
     // Handle rectangle drawing (persist + broadcast)
     socket.on('rect-draw', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -190,6 +204,7 @@ const whiteboardEvents = (io) => {
 
     // Handle circle drawing (persist + broadcast) — FIXED: was using findById with UUID
     socket.on('circle-draw', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -218,6 +233,7 @@ const whiteboardEvents = (io) => {
 
     // Handle arrow drawing (persist + broadcast) — FIXED: was using findById with UUID
     socket.on('arrow-draw', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -246,6 +262,7 @@ const whiteboardEvents = (io) => {
 
     // Handle text creation (persist + broadcast) — FIXED: was using findById with UUID
     socket.on('text-add', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -274,6 +291,7 @@ const whiteboardEvents = (io) => {
 
     // Handle shape update (move/resize) — ADDED: was missing from server
     socket.on('shape-update', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -326,6 +344,7 @@ const whiteboardEvents = (io) => {
 
     // Handle element deletion (persist + broadcast) — FIXED: was using findById with UUID; also added circle/arrow deletion
     socket.on('element-delete', async (data) => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -359,6 +378,7 @@ const whiteboardEvents = (io) => {
 
     // Handle board clear (persist + broadcast) — FIXED: was using findById with UUID
     socket.on('board-clear', async () => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         try {
           const board = await findBoardByRoomId(socket.currentBoard);
@@ -390,6 +410,7 @@ const whiteboardEvents = (io) => {
 
     // Handle undo (broadcast only — client manages undo state locally)
     socket.on('undo', () => {
+      if (socket.userRole === 'viewer') return;
       if (socket.currentBoard) {
         socket.to(socket.currentBoard).emit('undo', {
           userId: socket.user._id,

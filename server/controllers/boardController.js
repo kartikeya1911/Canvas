@@ -146,7 +146,8 @@ const getBoard = async (req, res) => {
     // Check if user has access to this board
     const hasAccess = board.owner._id.toString() === req.user.id ||
                      board.collaborators.some(collab => collab.user._id.toString() === req.user.id) ||
-                     board.isPublic;
+                     board.isPublic ||
+                     board.allowAnonymous; // Also allow if allowAnonymous is true
 
     if (!hasAccess) {
       console.log('🚫 Access denied for user:', req.user.name);
@@ -155,9 +156,23 @@ const getBoard = async (req, res) => {
 
     console.log('✅ Access granted to user:', req.user.name);
     
+    // Determine user role
+    let userRole = 'viewer';
+    if (board.owner._id.toString() === req.user.id) {
+      userRole = 'owner';
+    } else {
+      const collaborator = board.collaborators.find(collab => collab.user._id.toString() === req.user.id);
+      if (collaborator) {
+        userRole = collaborator.role;
+      } else if (board.isPublic || board.allowAnonymous) {
+        userRole = board.defaultPermission || 'editor';
+      }
+    }
+
     res.json({
       success: true,
-      board
+      board,
+      userRole
     });
   } catch (error) {
     console.error('Get board error:', error);

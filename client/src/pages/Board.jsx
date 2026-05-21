@@ -122,9 +122,13 @@ const Board = () => {
   const [connectedUsers, setConnectedUsers] = useState([]);
   const [cursors, setCursors] = useState(new Map());
   const [boardData, setBoardData] = useState(null);
+  const [userRole, setUserRole] = useState("viewer");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [saveStatus, setSaveStatus] = useState("saved");
+  
+  // Real-time external drawings
+  const [externalDrawings, setExternalDrawings] = useState({});
 
   // Chat state
   const [showChat, setShowChat] = useState(false);
@@ -161,6 +165,12 @@ const Board = () => {
         try {
           const response = await boardService.getBoard(boardId);
           setBoardData(response.board);
+          if (response.userRole) {
+            setUserRole(response.userRole);
+            if (response.userRole === 'viewer') {
+              setTool(TOOL_SELECT);
+            }
+          }
           
           // Load board content
           if (response.board.data) {
@@ -224,25 +234,52 @@ const Board = () => {
         // Users list will be updated via users-update event
       });
 
+      socketService.on('drawing', (data) => {
+        setExternalDrawings(prev => ({
+          ...prev,
+          [data.userId]: data
+        }));
+      });
+
       socketService.on('line-draw', (data) => {
+        setExternalDrawings(prev => {
+          const next = { ...prev };
+          delete next[data.userId];
+          return next;
+        });
         setLines(prev => [...prev, { ...data, id: data.id || `line_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('rect-draw', (data) => {
+        setExternalDrawings(prev => {
+          const next = { ...prev };
+          delete next[data.userId];
+          return next;
+        });
         setRects(prev => [...prev, { ...data, id: data.id || `rect_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('circle-draw', (data) => {
+        setExternalDrawings(prev => {
+          const next = { ...prev };
+          delete next[data.userId];
+          return next;
+        });
         setCircles(prev => [...prev, { ...data, id: data.id || `circle_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
       });
 
       socketService.on('arrow-draw', (data) => {
+        setExternalDrawings(prev => {
+          const next = { ...prev };
+          delete next[data.userId];
+          return next;
+        });
         setArrows(prev => [...prev, { ...data, id: data.id || `arrow_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
         setTimeout(() => setSaveStatus("saved"), 1000);
@@ -505,8 +542,8 @@ const Board = () => {
   };
 
   const handleMouseDown = (e) => {
-    // Skip if we're in select mode - that's handled by stage handlers
-    if (tool === TOOL_SELECT) return;
+    // Skip if we're in select mode or viewer
+    if (tool === TOOL_SELECT || userRole === 'viewer') return;
     
     const stage = stageRef.current;
     const pointer = stage.getPointerPosition();
@@ -679,8 +716,8 @@ const Board = () => {
   };
 
   const handleMouseMove = (e) => {
-    // Skip if we're in select mode - that's handled by stage handlers
-    if (tool === TOOL_SELECT) return;
+    // Skip if we're in select mode or viewer
+    if (tool === TOOL_SELECT || userRole === 'viewer') return;
     
     const stage = stageRef.current;
     const pointer = stage.getPointerPosition();
@@ -700,6 +737,20 @@ const Board = () => {
       lastLine.points = lastLine.points.concat([worldPos.x, worldPos.y]);
       lines.splice(lines.length - 1, 1, lastLine);
       setLines(lines.concat());
+      
+      // Real-time synchronization
+      if (socketService.connected) {
+        // Emit as partial shape
+        socketService.emitDrawing({
+          type: 'line',
+          tool: lastLine.tool,
+          points: lastLine.points,
+          color: lastLine.color,
+          thickness: lastLine.thickness,
+          opacity: lastLine.opacity,
+          id: lastLine.id
+        });
+      }
       
       // Additional eraser detection during drag
       if (tool === TOOL_ERASER) {
@@ -818,12 +869,20 @@ const Board = () => {
           points: [drawingShape.points[0], drawingShape.points[1], worldPos.x, worldPos.y],
         });
       }
+      
+      // Emit the updated drawing shape
+      if (socketService.connected) {
+        socketService.emitDrawing({
+          type: 'shape',
+          shape: drawingShape
+        });
+      }
     }
   };
 
   const handleMouseUp = () => {
-    // Skip if we're in select mode - that's handled by stage handlers
-    if (tool === TOOL_SELECT) return;
+    // Skip if we're in select mode or viewer
+    if (tool === TOOL_SELECT || userRole === 'viewer') return;
     
     if (isDrawing) {
       setIsDrawing(false);
@@ -1182,6 +1241,7 @@ const Board = () => {
       </div>
 
       {/* Static Modern Miro-Inspired Toolbar */}
+      {userRole !== 'viewer' && (
       <div className={`fixed left-0 top-12 z-30 w-20 h-full ${colors.bg.card} backdrop-blur-xl bg-opacity-95 border-r ${colors.border.primary} flex flex-col items-center py-6 gap-2 ${shadows.card} overflow-y-auto`}>
         {/* Drawing Tools */}
         <div className="flex flex-col gap-2 mb-4">
@@ -1349,10 +1409,11 @@ const Board = () => {
           </div>
         </div>
       </div>
+      )}
 
       {/* Horizontal Shapes Grid Drawer */}
       <AnimatePresence>
-        {showShapesDrawer && (
+        {showShapesDrawer && userRole !== 'viewer' && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1490,7 +1551,7 @@ const Board = () => {
 
       {/* Horizontal Pen Tools Drawer */}
       <AnimatePresence>
-        {showPenDrawer && (
+        {showPenDrawer && userRole !== 'viewer' && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1554,7 +1615,7 @@ const Board = () => {
 
       {/* Horizontal Eraser Tools Drawer */}
       <AnimatePresence>
-        {showEraserDrawer && (
+        {showEraserDrawer && userRole !== 'viewer' && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.9 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -1593,9 +1654,10 @@ const Board = () => {
       </AnimatePresence>
 
       {/* Canvas Area - Adjusted for static toolbar */}
-      <div className="flex-1 overflow-hidden relative ml-20 mt-12"
+      <div className={`flex-1 overflow-hidden relative mt-12 ${userRole !== 'viewer' ? 'ml-20' : ''}`}
            style={{ 
-             cursor: tool === TOOL_SELECT ? (isPanning ? 'grabbing' : 'grab') : 
+             cursor: userRole === 'viewer' ? (isPanning ? 'grabbing' : 'grab') :
+                     tool === TOOL_SELECT ? (isPanning ? 'grabbing' : 'grab') : 
                      tool === TOOL_ERASER ? 'crosshair' : 
                      tool === TOOL_PARTIAL_ERASER ? 'crosshair' : 'crosshair' 
            }}
@@ -1611,6 +1673,12 @@ const Board = () => {
             <h2 className={`font-semibold ${colors.text.primary}`}>
               {boardData?.title || "Untitled Board"}
             </h2>
+            {userRole === 'viewer' && (
+              <span className="px-2 py-1 bg-yellow-100 text-yellow-800 text-xs font-bold rounded">
+                View Only
+              </span>
+            )}
+            {userRole !== 'viewer' && (
             <div className="flex items-center gap-2 text-sm">
               <div className={`w-2 h-2 rounded-full ${
                 saveStatus === 'saved' ? 'bg-green-500' : 
@@ -1621,6 +1689,7 @@ const Board = () => {
                  saveStatus === 'syncing' ? 'Syncing...' : 'Error saving'}
               </span>
             </div>
+            )}
           </div>
 
           <div className="flex items-center gap-4">
@@ -1856,6 +1925,48 @@ const Board = () => {
                 draggable
               />
             ))}
+
+            {/* External user live drawings */}
+            {Object.values(externalDrawings).map((data, idx) => {
+              if (data.type === 'line' && data.points) {
+                return (
+                  <Line
+                    key={`ext-line-${data.userId}-${idx}`}
+                    points={data.points}
+                    stroke={data.tool === TOOL_ERASER || data.tool === TOOL_PARTIAL_ERASER ? (isDark ? "#111827" : "#ffffff") : data.color || "#1d4ed8"}
+                    strokeWidth={data.thickness}
+                    opacity={data.opacity || 1}
+                    tension={0.5}
+                    lineCap="round"
+                    globalCompositeOperation={
+                      data.tool === TOOL_ERASER || data.tool === TOOL_PARTIAL_ERASER ? "destination-out" : "source-over"
+                    }
+                  />
+                );
+              }
+              if (data.type === 'shape' && data.shape) {
+                const shape = data.shape;
+                if (shape.type === 'rect') {
+                  return (
+                    <Rect key={`ext-rect-${data.userId}-${idx}`} x={shape.x} y={shape.y} width={shape.width} height={shape.height} stroke={shape.color} strokeWidth={shape.thickness} dash={[10, 5]} />
+                  );
+                } else if (shape.type === 'circle') {
+                  return (
+                    <Circle key={`ext-circle-${data.userId}-${idx}`} x={shape.x} y={shape.y} radius={shape.radius} stroke={shape.color} strokeWidth={shape.thickness} dash={[10, 5]} />
+                  );
+                } else if (shape.type === 'arrow') {
+                  return (
+                    <Arrow key={`ext-arrow-${data.userId}-${idx}`} points={shape.points} stroke={shape.color} strokeWidth={shape.thickness} pointerLength={20} pointerWidth={20} dash={[10, 5]} />
+                  );
+                } else if (shape.type === 'ellipse') {
+                  return (
+                    <Ellipse key={`ext-ellipse-${data.userId}-${idx}`} x={shape.x} y={shape.y} radiusX={shape.radiusX} radiusY={shape.radiusY} stroke={shape.color} strokeWidth={shape.thickness} dash={[10, 5]} />
+                  );
+                }
+                // (Others can be added similarly if needed)
+              }
+              return null;
+            })}
 
             {/* Drawing preview for all shapes */}
             {drawingShape && drawingShape.type === 'rect' && Math.abs(drawingShape.width) > 1 && Math.abs(drawingShape.height) > 1 && (

@@ -74,14 +74,10 @@ function App() {
               />
               
               {/* Board - Collaborative whiteboard canvas */}
-              {/* Optional parameter :boardId? allows creating new board or opening existing */}
+              {/* Supports authenticated users and anonymous/invited collaborators */}
               <Route 
                 path="/board/:boardId?" 
-                element={
-                  <PrivateRoute>
-                    <Board />
-                  </PrivateRoute>
-                } 
+                element={<Board />} 
               />
             </Routes>
           </div>

@@ -1,5 +1,5 @@
-import React, { useRef, useState, useEffect } from "react";
-import { useParams } from "react-router-dom";
+import React, { useRef, useState, useEffect, useCallback } from "react";
+import { useParams, useNavigate } from "react-router-dom";
 import { Stage, Layer, Line, Rect, Text, Circle, Ellipse, Star, Arrow, Group } from "react-konva";
 import { useAuth } from "../contexts/AuthContext";
 import { useTheme } from "../contexts/ThemeContext";
@@ -7,6 +7,8 @@ import { boardService } from "../services/boardService";
 import socketService from "../services/socketService";
 import Navbar from "../components/Navbar";
 import OnlineMembers from "../components/OnlineMembers";
+import ExportModal from "../components/ExportModal";
+import KeyboardShortcutsHelp from "../components/KeyboardShortcutsHelp";
 import { motion, AnimatePresence } from "framer-motion";
 
 const TOOL_PENCIL = "pencil";
@@ -83,6 +85,7 @@ const ActionButton = ({ title, onClick, icon, className = "" }) => {
 
 const Board = () => {
   const { boardId } = useParams();
+  const navigate = useNavigate();
   const { isAuthenticated, token, user } = useAuth();
   const { colors, shadows, isDark } = useTheme();
 
@@ -94,14 +97,12 @@ const Board = () => {
     }
   }, [boardId]);
 
-  // Redirect to dashboard if no boardId is provided
+  // If no boardId is provided and user is not authenticated, redirect to login
   useEffect(() => {
-    if (isAuthenticated && boardId === undefined) {
-      console.log('🏠 No board ID, redirecting to dashboard...');
-      // You might want to add redirect logic here if needed
-      // navigate('/dashboard');
+    if (!boardId && !isAuthenticated) {
+      navigate('/login');
     }
-  }, [boardId, isAuthenticated]);
+  }, [boardId, isAuthenticated, navigate]);
 
   // Canvas state
   const [tool, setTool] = useState(TOOL_PENCIL);
@@ -110,6 +111,8 @@ const Board = () => {
   const [circles, setCircles] = useState([]);
   const [arrows, setArrows] = useState([]);
   const [textNodes, setTextNodes] = useState([]);
+  // Unified undo/redo action history: each entry = { type, element } where type is 'line'|'rect'|'circle'|'arrow'|'text'
+  const [undoStack, setUndoStack] = useState([]); // array of { type, element } added actions
   const [redoStack, setRedoStack] = useState([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [stageScale, setStageScale] = useState(1);
@@ -117,6 +120,8 @@ const Board = () => {
   const [color, setColor] = useState("#1d4ed8");
   const [thickness, setThickness] = useState(3);
   const [drawingShape, setDrawingShape] = useState(null);
+  // Flag to skip auto-save during socket-driven state updates
+  const skipAutoSave = useRef(false);
 
   // Collaboration state
   const [connectedUsers, setConnectedUsers] = useState([]);
@@ -140,6 +145,8 @@ const Board = () => {
   
   // Share state
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [showShortcutsModal, setShowShortcutsModal] = useState(false);
   const [inviteUrl, setInviteUrl] = useState("");
   const [isGeneratingLink, setIsGeneratingLink] = useState(false);
   const [shareSettings, setShareSettings] = useState({
@@ -161,7 +168,7 @@ const Board = () => {
   // Load board data
   useEffect(() => {
     const loadBoard = async () => {
-      if (boardId && isAuthenticated) {
+      if (boardId) {
         try {
           const response = await boardService.getBoard(boardId);
           setBoardData(response.board);
@@ -181,7 +188,7 @@ const Board = () => {
             setTextNodes(response.board.data.textNodes || []);
           }
         } catch (err) {
-          setError("Failed to load board");
+          setError(err.response?.data?.message || "Failed to load board");
           console.error("Load board error:", err);
         }
       }
@@ -193,7 +200,7 @@ const Board = () => {
 
   // Socket connection and event handlers
   useEffect(() => {
-    if (isAuthenticated && token && !socketInitialized.current) {
+    if (boardId && !socketInitialized.current) {
       console.log('🔌 Initializing socket connection...');
       socketInitialized.current = true;
       
@@ -202,6 +209,7 @@ const Board = () => {
       // Socket event listeners
       socketService.on('board-state', (data) => {
         console.log('📊 Received board state:', data);
+        skipAutoSave.current = true;
         if (data.board) {
           setLines(data.board.lines || []);
           setRects(data.board.rectangles || []);
@@ -213,6 +221,8 @@ const Board = () => {
           console.log('👥 Initial users from board-state:', data.users);
           setConnectedUsers(data.users);
         }
+        // Re-enable auto-save after socket update completes
+        setTimeout(() => { skipAutoSave.current = false; }, 100);
       });
 
       socketService.on('users-update', (users) => {
@@ -242,6 +252,7 @@ const Board = () => {
       });
 
       socketService.on('line-draw', (data) => {
+        skipAutoSave.current = true;
         setExternalDrawings(prev => {
           const next = { ...prev };
           delete next[data.userId];
@@ -249,10 +260,11 @@ const Board = () => {
         });
         setLines(prev => [...prev, { ...data, id: data.id || `line_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
       });
 
       socketService.on('rect-draw', (data) => {
+        skipAutoSave.current = true;
         setExternalDrawings(prev => {
           const next = { ...prev };
           delete next[data.userId];
@@ -260,10 +272,11 @@ const Board = () => {
         });
         setRects(prev => [...prev, { ...data, id: data.id || `rect_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
       });
 
       socketService.on('circle-draw', (data) => {
+        skipAutoSave.current = true;
         setExternalDrawings(prev => {
           const next = { ...prev };
           delete next[data.userId];
@@ -271,10 +284,11 @@ const Board = () => {
         });
         setCircles(prev => [...prev, { ...data, id: data.id || `circle_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
       });
 
       socketService.on('arrow-draw', (data) => {
+        skipAutoSave.current = true;
         setExternalDrawings(prev => {
           const next = { ...prev };
           delete next[data.userId];
@@ -282,13 +296,37 @@ const Board = () => {
         });
         setArrows(prev => [...prev, { ...data, id: data.id || `arrow_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
       });
 
       socketService.on('text-add', (data) => {
+        skipAutoSave.current = true;
         setTextNodes(prev => [...prev, { ...data, id: data.id || `text_${Date.now()}_${Math.random()}` }]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
+      });
+
+      // Handle remote element deletion
+      socketService.on('element-delete', (data) => {
+        skipAutoSave.current = true;
+        if (data.elementType === 'line') setLines(prev => prev.filter(el => el.id !== data.elementId));
+        else if (data.elementType === 'rectangle') setRects(prev => prev.filter(el => el.id !== data.elementId));
+        else if (data.elementType === 'circle') setCircles(prev => prev.filter(el => el.id !== data.elementId));
+        else if (data.elementType === 'arrow') setArrows(prev => prev.filter(el => el.id !== data.elementId));
+        else if (data.elementType === 'text') setTextNodes(prev => prev.filter(el => el.id !== data.elementId));
+        setTimeout(() => { skipAutoSave.current = false; }, 100);
+      });
+
+      // Handle remote shape updates (move/resize)
+      socketService.on('shape-update', (data) => {
+        skipAutoSave.current = true;
+        const updateEl = (arr) => arr.map(el => el.id === data.elementId ? { ...el, ...data } : el);
+        if (data.elementType === 'line') setLines(prev => updateEl(prev));
+        else if (data.elementType === 'rectangle') setRects(prev => updateEl(prev));
+        else if (data.elementType === 'circle') setCircles(prev => updateEl(prev));
+        else if (data.elementType === 'arrow') setArrows(prev => updateEl(prev));
+        else if (data.elementType === 'text') setTextNodes(prev => updateEl(prev));
+        setTimeout(() => { skipAutoSave.current = false; }, 100);
       });
 
       socketService.on('cursor-move', (data) => {
@@ -304,13 +342,16 @@ const Board = () => {
       });
 
       socketService.on('board-clear', () => {
+        skipAutoSave.current = true;
         setLines([]);
         setRects([]);
         setCircles([]);
         setArrows([]);
         setTextNodes([]);
+        setUndoStack([]);
+        setRedoStack([]);
         setSaveStatus("syncing");
-        setTimeout(() => setSaveStatus("saved"), 1000);
+        setTimeout(() => { setSaveStatus("saved"); skipAutoSave.current = false; }, 1000);
       });
 
       socketService.on('chat-message', (data) => {
@@ -332,9 +373,9 @@ const Board = () => {
     let joinAttemptTimeout;
     
     const attemptJoinBoard = () => {
-      if (isAuthenticated && token && boardId && socketService.connected && !boardJoined.current) {
+      if (boardId && socketService.connected && !boardJoined.current) {
         console.log('🏠 Attempting to join board:', boardId);
-        console.log('👤 Current user:', user?.name);
+        console.log('👤 Current user:', user?.name || 'Anonymous');
         console.log('🔌 Socket connected:', socketService.connected);
         boardJoined.current = true;
         socketService.joinBoard(boardId);
@@ -343,7 +384,7 @@ const Board = () => {
       return false;
     };
 
-    if (isAuthenticated && token && boardId && socketInitialized.current) {
+    if (boardId && socketInitialized.current) {
       // Reset board joined flag when board changes
       if (boardJoined.current && socketService.currentBoard !== boardId) {
         console.log('🔄 Board changed, resetting join flag');
@@ -380,11 +421,13 @@ const Board = () => {
     });
   }, [connectedUsers]);
 
-  // Auto-save functionality
+  // Auto-save functionality - skips when socket updates are happening to prevent race conditions
   useEffect(() => {
-    if (boardId && boardData && isAuthenticated) {
+    if (boardId && boardData && isAuthenticated && !skipAutoSave.current) {
       const saveTimeout = setTimeout(async () => {
+        if (skipAutoSave.current) return; // Double-check before saving
         try {
+          setSaveStatus("syncing");
           await boardService.updateBoard(boardId, {
             data: {
               lines,
@@ -399,7 +442,7 @@ const Board = () => {
           setSaveStatus("error");
           console.error("Auto-save error:", err);
         }
-      }, 2000);
+      }, 3000); // 3s debounce to reduce DB writes
 
       return () => clearTimeout(saveTimeout);
     }
@@ -579,7 +622,9 @@ const Board = () => {
         opacity: lineOpacity,
         id: `line_${Date.now()}_${Math.random()}`
       };
-      setLines([...lines, newLine]);
+      setLines(prev => [...prev, newLine]);
+      // Track in undo history — clear redo on new action
+      setUndoStack(prev => [...prev, { type: 'line', element: newLine }]);
       setRedoStack([]);
       
       // If eraser, check for intersections with existing shapes
@@ -728,7 +773,7 @@ const Board = () => {
     };
 
     // Emit cursor position for collaboration
-    if (isAuthenticated && socketService.connected) {
+    if (socketService.connected) {
       socketService.emitCursorMove(worldPos);
     }
 
@@ -887,8 +932,19 @@ const Board = () => {
     if (isDrawing) {
       setIsDrawing(false);
       const lastLine = lines[lines.length - 1];
-      if (lastLine && socketService.connected) {
-        socketService.emitLineDraw(lastLine);
+      if (lastLine) {
+        setUndoStack(prev => {
+          if (prev.length === 0) return prev;
+          const copy = [...prev];
+          const lastIdx = copy.length - 1;
+          if (copy[lastIdx].type === 'line' && copy[lastIdx].element.id === lastLine.id) {
+            copy[lastIdx] = { ...copy[lastIdx], element: lastLine };
+          }
+          return copy;
+        });
+        if (socketService.connected) {
+          socketService.emitLineDraw(lastLine);
+        }
       }
     }
     
@@ -897,17 +953,23 @@ const Board = () => {
       const shapeWithId = { ...drawingShape, id: shapeId };
       
       if (drawingShape.type === 'rect' || drawingShape.type === 'diamond') {
-        setRects([...rects, shapeWithId]);
+        setRects(prev => [...prev, shapeWithId]);
+        setUndoStack(prev => [...prev, { type: 'rect', element: shapeWithId }]);
+        setRedoStack([]);
         if (socketService.connected) {
           socketService.emitRectDraw(shapeWithId);
         }
       } else if (drawingShape.type === 'circle' || drawingShape.type === 'ellipse' || drawingShape.type === 'hexagon' || drawingShape.type === 'star') {
-        setCircles([...circles, shapeWithId]);
+        setCircles(prev => [...prev, shapeWithId]);
+        setUndoStack(prev => [...prev, { type: 'circle', element: shapeWithId }]);
+        setRedoStack([]);
         if (socketService.connected) {
           socketService.emitCircleDraw(shapeWithId);
         }
       } else if (drawingShape.type === 'arrow' || drawingShape.type === 'line' || drawingShape.type === 'triangle') {
-        setArrows([...arrows, shapeWithId]);
+        setArrows(prev => [...prev, shapeWithId]);
+        setUndoStack(prev => [...prev, { type: 'arrow', element: shapeWithId }]);
+        setRedoStack([]);
         if (socketService.connected) {
           socketService.emitArrowDraw(shapeWithId);
         }
@@ -1071,28 +1133,58 @@ const Board = () => {
     }
   };
 
-  // Undo/Redo with socket integration
+  // Undo/Redo with unified action history
   const handleUndo = () => {
-    if (lines.length > 0) {
-      setRedoStack([lines[lines.length - 1], ...redoStack]);
-      setLines(lines.slice(0, -1));
-      if (socketService.connected) {
-        socketService.emitUndo();
-      }
-    } else if (rects.length > 0) {
-      setRedoStack([rects[rects.length - 1], ...redoStack]);
-      setRects(rects.slice(0, -1));
-    } else if (textNodes.length > 0) {
-      setRedoStack([textNodes[textNodes.length - 1], ...redoStack]);
-      setTextNodes(textNodes.slice(0, -1));
+    if (undoStack.length === 0) return;
+    const lastAction = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, lastAction]);
+
+    // Remove the last element of that type
+    if (lastAction.type === 'line') {
+      setLines(prev => prev.filter(el => el.id !== lastAction.element.id));
+    } else if (lastAction.type === 'rect') {
+      setRects(prev => prev.filter(el => el.id !== lastAction.element.id));
+    } else if (lastAction.type === 'circle') {
+      setCircles(prev => prev.filter(el => el.id !== lastAction.element.id));
+    } else if (lastAction.type === 'arrow') {
+      setArrows(prev => prev.filter(el => el.id !== lastAction.element.id));
+    } else if (lastAction.type === 'text') {
+      setTextNodes(prev => prev.filter(el => el.id !== lastAction.element.id));
+    }
+
+    if (socketService.connected && lastAction.element?.id) {
+      const elementType = lastAction.type === 'rect' ? 'rectangle' : lastAction.type;
+      socketService.emitElementDelete({ elementType, elementId: lastAction.element.id });
+      socketService.emitUndo();
     }
   };
 
   const handleRedo = () => {
     if (redoStack.length === 0) return;
-    setLines([...lines, redoStack[0]]);
-    setRedoStack(redoStack.slice(1));
-    if (socketService.connected) {
+    const lastRedo = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [...prev, lastRedo]);
+
+    // Re-add the element
+    if (lastRedo.type === 'line') {
+      setLines(prev => [...prev, lastRedo.element]);
+    } else if (lastRedo.type === 'rect') {
+      setRects(prev => [...prev, lastRedo.element]);
+    } else if (lastRedo.type === 'circle') {
+      setCircles(prev => [...prev, lastRedo.element]);
+    } else if (lastRedo.type === 'arrow') {
+      setArrows(prev => [...prev, lastRedo.element]);
+    } else if (lastRedo.type === 'text') {
+      setTextNodes(prev => [...prev, lastRedo.element]);
+    }
+
+    if (socketService.connected && lastRedo.element) {
+      if (lastRedo.type === 'line') socketService.emitLineDraw(lastRedo.element);
+      else if (lastRedo.type === 'rect') socketService.emitRectDraw(lastRedo.element);
+      else if (lastRedo.type === 'circle') socketService.emitCircleDraw(lastRedo.element);
+      else if (lastRedo.type === 'arrow') socketService.emitArrowDraw(lastRedo.element);
+      else if (lastRedo.type === 'text') socketService.emitTextAdd(lastRedo.element);
       socketService.emitRedo();
     }
   };
@@ -1105,6 +1197,7 @@ const Board = () => {
       setCircles([]);
       setArrows([]);
       setTextNodes([]);
+      setUndoStack([]);
       setRedoStack([]);
       if (socketService.connected) {
         socketService.emitBoardClear();
@@ -1123,11 +1216,14 @@ const Board = () => {
       const newTextNode = { 
         ...textInputPos, 
         text: inputValue, 
-        fontSize: 22 / stageScale,
+        // Store absolute fontSize (22px) independent of zoom level
+        fontSize: 22,
         color: color,
         id: `text_${Date.now()}_${Math.random()}`
       };
-      setTextNodes([...textNodes, newTextNode]);
+      setTextNodes(prev => [...prev, newTextNode]);
+      setUndoStack(prev => [...prev, { type: 'text', element: newTextNode }]);
+      setRedoStack([]);
       
       if (socketService.connected) {
         socketService.emitTextAdd(newTextNode);
@@ -1709,6 +1805,32 @@ const Board = () => {
               </svg>
             </motion.button>
 
+            {/* Export button */}
+            <motion.button
+              onClick={() => setShowExportModal(true)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 hover:${colors.bg.tertiary} transition-all duration-200 border ${colors.border.primary}`}
+              title="Export Canvas (PNG, JPEG, JSON)"
+            >
+              <svg className={`w-6 h-6 ${colors.text.primary}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </motion.button>
+
+            {/* Keyboard Shortcuts Help button */}
+            <motion.button
+              onClick={() => setShowShortcutsModal(true)}
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              className={`${colors.bg.card} backdrop-blur-xl bg-opacity-95 rounded-2xl ${shadows.card} p-3 hover:${colors.bg.tertiary} transition-all duration-200 border ${colors.border.primary}`}
+              title="Keyboard Shortcuts (?)"
+            >
+              <svg className={`w-6 h-6 ${colors.text.primary}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </motion.button>
+
             {/* Share button */}
             <motion.button
               onClick={() => boardId && setShowShareModal(true)}
@@ -2130,6 +2252,42 @@ const Board = () => {
             }}
           />
         )}
+
+        {/* Floating Zoom Controls */}
+        <div className={`absolute bottom-6 right-6 z-20 flex items-center gap-1 rounded-2xl p-1.5 border backdrop-blur-xl shadow-lg ${
+          isDark ? 'bg-gray-800/90 border-gray-700 text-white' : 'bg-white/90 border-gray-200 text-gray-800'
+        }`}>
+          <button
+            onClick={() => {
+              const newScale = Math.max(0.1, stageScale / 1.2);
+              setStageScale(newScale);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 font-bold text-base transition"
+            title="Zoom Out"
+          >
+            −
+          </button>
+          <button
+            onClick={() => {
+              setStageScale(1);
+              setStagePos({ x: 0, y: 0 });
+            }}
+            className="px-2 h-8 flex items-center justify-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 text-xs font-semibold transition"
+            title="Reset Zoom to 100%"
+          >
+            {Math.round(stageScale * 100)}%
+          </button>
+          <button
+            onClick={() => {
+              const newScale = Math.min(5, stageScale * 1.2);
+              setStageScale(newScale);
+            }}
+            className="w-8 h-8 flex items-center justify-center rounded-xl hover:bg-gray-200 dark:hover:bg-gray-700 font-bold text-base transition"
+            title="Zoom In"
+          >
+            +
+          </button>
+        </div>
       </div>
 
       {/* Chat Panel */}
@@ -2295,6 +2453,29 @@ const Board = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Export Modal */}
+      <ExportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        stageRef={stageRef}
+        boardData={{
+          title: boardData?.title,
+          lines,
+          rects,
+          circles,
+          arrows,
+          textNodes
+        }}
+        theme={isDark ? 'dark' : 'light'}
+      />
+
+      {/* Keyboard Shortcuts Modal */}
+      <KeyboardShortcutsHelp
+        isOpen={showShortcutsModal}
+        onClose={() => setShowShortcutsModal(false)}
+        theme={isDark ? 'dark' : 'light'}
+      />
     </div>
   );
 };

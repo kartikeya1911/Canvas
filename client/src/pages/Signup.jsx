@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 
 const Signup = () => {
@@ -14,13 +14,15 @@ const Signup = () => {
 
   const { register, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const from = (typeof location.state?.from === 'string' ? location.state.from : location.state?.from?.pathname) || "/dashboard";
 
   // Redirect if already authenticated
   React.useEffect(() => {
     if (isAuthenticated) {
-      navigate("/dashboard", { replace: true });
+      navigate(from, { replace: true });
     }
-  }, [isAuthenticated, navigate]);
+  }, [isAuthenticated, navigate, from]);
 
   const handleChange = (e) => {
     setFormData({
@@ -51,7 +53,7 @@ const Signup = () => {
     try {
       const result = await register(formData.name, formData.email, formData.password);
       if (result.success) {
-        navigate("/dashboard", { replace: true });
+        navigate(from, { replace: true });
       } else {
         setError(result.message);
       }

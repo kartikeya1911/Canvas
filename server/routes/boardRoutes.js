@@ -48,6 +48,9 @@ router.get('/invite/:boardId', optionalAuth, getBoardByInvite);
 // Adds user as collaborator or allows anonymous access
 router.post('/join/:boardId', optionalAuth, joinBoardViaInvite);
 
+// GET /api/boards/:id - Get specific board by ID (supports authenticated users & anonymous access for public/shared boards)
+router.get('/:id', optionalAuth, getBoard);
+
 /**
  * PROTECTED ROUTES - Authentication Required
  * All routes below this middleware require valid JWT token
@@ -64,11 +67,9 @@ router.route('/')
   .get(getBoards)     // List user's boards
   .post(createBoard); // Create new board
 
-// GET /api/boards/:id - Get specific board by ID
 // PUT /api/boards/:id - Update board (title, description, data, etc.)
 // DELETE /api/boards/:id - Delete a board permanently
 router.route('/:id')
-  .get(getBoard)      // Get single board
   .put(updateBoard)   // Update board
   .delete(deleteBoard); // Delete board
 

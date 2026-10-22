@@ -62,11 +62,9 @@ const registerUser = async (req, res) => {
       token // JWT token for authentication
     });
   } catch (error) {
-    // ERRORHANDLING: Log error and send error response
     console.error('Registration error:', error);
     res.status(500).json({
-      message: 'Server error during registration',
-      error: error.message
+      message: 'Server error during registration'
     });
   }
 };
@@ -142,11 +140,9 @@ const loginUser = async (req, res) => {
       token // JWT token for maintaining session
     });
   } catch (error) {
-    // ERROR HANDLING: Log error and send error response
     console.error('Login error:', error);
     res.status(500).json({
-      message: 'Server error during login',
-      error: error.message
+      message: 'Server error during login'
     });
   }
 };
@@ -177,11 +173,9 @@ const getMe = async (req, res) => {
       }
     });
   } catch (error) {
-    // ERROR HANDLING: Log error and send error response
     console.error('Get profile error:', error);
     res.status(500).json({
-      message: 'Server error getting user profile',
-      error: error.message
+      message: 'Server error getting user profile'
     });
   }
 };

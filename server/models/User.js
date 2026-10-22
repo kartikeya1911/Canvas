@@ -68,18 +68,16 @@ const UserSchema = new mongoose.Schema({
  * This runs automatically before a user document is saved
  * Passwords are never stored in plain text for security
  */
-UserSchema.pre('save', async function(next) {
+UserSchema.pre('save', async function() {
   // Only hash the password if it has been modified (or is new)
   if (!this.isModified('password')) {
-    next(); // Skip hashing if password hasn't changed
+    return;
   }
   
   // Generate a salt (random data) for hashing
-  // Higher number = more secure but slower (10 is a good balance)
   const salt = await bcrypt.genSalt(10);
   
   // Hash the password with the salt
-  // This creates a one-way encrypted version of the password
   this.password = await bcrypt.hash(this.password, salt);
 });
 

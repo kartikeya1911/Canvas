@@ -49,8 +49,7 @@ const createBoard = async (req, res) => {
   } catch (error) {
     console.error('Create board error:', error);
     res.status(500).json({
-      message: 'Server error creating board',
-      error: error.message
+      message: 'Server error creating board'
     });
   }
 };
@@ -101,8 +100,7 @@ const getBoards = async (req, res) => {
   } catch (error) {
     console.error('❌ Get boards error:', error);
     res.status(500).json({
-      message: 'Server error getting boards',
-      error: error.message
+      message: 'Server error getting boards'
     });
   }
 };
@@ -144,29 +142,27 @@ const getBoard = async (req, res) => {
     console.log('✅ Board found:', board.title);
 
     // Check if user has access to this board
-    const hasAccess = board.owner._id.toString() === req.user.id ||
-                     board.collaborators.some(collab => collab.user._id.toString() === req.user.id) ||
-                     board.isPublic ||
-                     board.allowAnonymous; // Also allow if allowAnonymous is true
+    const isOwner = req.user && board.owner._id.toString() === req.user.id;
+    const collaborator = req.user && board.collaborators.find(collab => 
+      collab.user && collab.user._id && collab.user._id.toString() === req.user.id
+    );
+    const hasAccess = isOwner || collaborator || board.isPublic || board.allowAnonymous;
 
     if (!hasAccess) {
-      console.log('🚫 Access denied for user:', req.user.name);
+      console.log('🚫 Access denied for user:', req.user?.name || 'Anonymous');
       return res.status(403).json({ message: 'Access denied to this board' });
     }
 
-    console.log('✅ Access granted to user:', req.user.name);
+    console.log('✅ Access granted to user:', req.user?.name || 'Anonymous');
     
     // Determine user role
     let userRole = 'viewer';
-    if (board.owner._id.toString() === req.user.id) {
+    if (isOwner) {
       userRole = 'owner';
-    } else {
-      const collaborator = board.collaborators.find(collab => collab.user._id.toString() === req.user.id);
-      if (collaborator) {
-        userRole = collaborator.role;
-      } else if (board.isPublic || board.allowAnonymous) {
-        userRole = board.defaultPermission || 'editor';
-      }
+    } else if (collaborator) {
+      userRole = collaborator.role;
+    } else if (board.isPublic || board.allowAnonymous) {
+      userRole = board.defaultPermission || 'editor';
     }
 
     res.json({
@@ -177,8 +173,7 @@ const getBoard = async (req, res) => {
   } catch (error) {
     console.error('Get board error:', error);
     res.status(500).json({
-      message: 'Server error getting board',
-      error: error.message
+      message: 'Server error getting board'
     });
   }
 };
@@ -244,8 +239,7 @@ const updateBoard = async (req, res) => {
   } catch (error) {
     console.error('Update board error:', error);
     res.status(500).json({
-      message: 'Server error updating board',
-      error: error.message
+      message: 'Server error updating board'
     });
   }
 };
@@ -255,7 +249,20 @@ const updateBoard = async (req, res) => {
 // @access  Private
 const deleteBoard = async (req, res) => {
   try {
-    const board = await Board.findById(req.params.id);
+    const { id } = req.params;
+    let board;
+
+    // Support both MongoDB ObjectId and UUID boardId
+    const isObjectId = /^[0-9a-fA-F]{24}$/.test(id);
+    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+
+    if (isObjectId) {
+      board = await Board.findById(id);
+    } else if (isUUID) {
+      board = await Board.findOne({ boardId: id });
+    } else {
+      return res.status(400).json({ message: 'Invalid board ID format' });
+    }
 
     if (!board) {
       return res.status(404).json({ message: 'Board not found' });
@@ -266,12 +273,25 @@ const deleteBoard = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to delete this board' });
     }
 
-    await Board.findByIdAndDelete(req.params.id);
+    await Board.findByIdAndDelete(board._id);
 
-    // Remove board from user's boards array
+    // Remove board from owner's boards array
     await User.findByIdAndUpdate(req.user.id, {
       $pull: { boards: board._id }
     });
+
+    // Also remove from all collaborators' boards arrays
+    if (board.collaborators && board.collaborators.length > 0) {
+      const collaboratorIds = board.collaborators
+        .filter(c => c.user)
+        .map(c => c.user);
+      if (collaboratorIds.length > 0) {
+        await User.updateMany(
+          { _id: { $in: collaboratorIds } },
+          { $pull: { boards: board._id } }
+        );
+      }
+    }
 
     res.json({
       success: true,
@@ -280,8 +300,7 @@ const deleteBoard = async (req, res) => {
   } catch (error) {
     console.error('Delete board error:', error);
     res.status(500).json({
-      message: 'Server error deleting board',
-      error: error.message
+      message: 'Server error deleting board'
     });
   }
 };
@@ -339,8 +358,7 @@ const addCollaborator = async (req, res) => {
   } catch (error) {
     console.error('Add collaborator error:', error);
     res.status(500).json({
-      message: 'Server error adding collaborator',
-      error: error.message
+      message: 'Server error adding collaborator'
     });
   }
 };
@@ -380,8 +398,7 @@ const removeCollaborator = async (req, res) => {
   } catch (error) {
     console.error('Remove collaborator error:', error);
     res.status(500).json({
-      message: 'Server error removing collaborator',
-      error: error.message
+      message: 'Server error removing collaborator'
     });
   }
 };
@@ -453,8 +470,7 @@ const getBoardByInvite = async (req, res) => {
     console.error('Get board by invite error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error accessing board',
-      error: error.message
+      message: 'Server error accessing board'
     });
   }
 };
@@ -551,8 +567,7 @@ const generateInviteLink = async (req, res) => {
     console.error('❌ Generate invite link error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error generating invite link',
-      error: error.message
+      message: 'Server error generating invite link'
     });
   }
 };
@@ -576,8 +591,9 @@ const joinBoardViaInvite = async (req, res) => {
     }
 
     // Clean up null collaborators (users that were deleted)
+    const originalLength = board.collaborators.length;
     board.collaborators = board.collaborators.filter(collab => collab.user != null);
-    if (board.collaborators.length !== board.collaborators.length) {
+    if (board.collaborators.length !== originalLength) {
       await board.save();
     }
 
@@ -658,8 +674,7 @@ const joinBoardViaInvite = async (req, res) => {
     console.error('Join board via invite error:', error);
     res.status(500).json({
       success: false,
-      message: 'Server error joining board',
-      error: error.message
+      message: 'Server error joining board'
     });
   }
 };

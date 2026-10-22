@@ -2,6 +2,8 @@ const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
 const cors = require('cors');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
 const os = require('os');
 const connectDB = require('./config/db');
 const authRoutes = require('./routes/authRoutes');
@@ -27,7 +29,7 @@ const getLocalIPAddress = () => {
 const LOCAL_IP = getLocalIPAddress();
 const CLIENT_PORT = 3000;
 
-// Socket.IO setup with CORS - allow both localhost, network IP, and Vercel
+// Allowed origins for CORS
 const allowedOrigins = [
   "http://localhost:3000",
   `http://${LOCAL_IP}:${CLIENT_PORT}`,
@@ -35,37 +37,21 @@ const allowedOrigins = [
   "https://collab-canvas-lovat.vercel.app"
 ].filter(Boolean);
 
-// CORS origin checker function to allow all Vercel preview URLs
+// CORS origin checker
 const corsOptions = {
   origin: function (origin, callback) {
-    console.log('🔍 CORS Request from origin:', origin);
+    // Allow requests with no origin (mobile apps, curl, server-to-server, etc.)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    // Allow all Vercel preview deployment URLs
+    if (origin.match(/https:\/\/.*\.vercel\.app$/)) return callback(null, true);
+    // Allow localhost and loopback on any port
+    if (origin.match(/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/)) return callback(null, true);
+    // Allow local network IP addresses (192.168.x.x, 10.x.x.x, 172.16-31.x.x)
+    if (origin.match(/^https?:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/)) return callback(null, true);
     
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      console.log('✅ No origin - allowing');
-      return callback(null, true);
-    }
-    
-    // Check if origin is in allowed list
-    if (allowedOrigins.includes(origin)) {
-      console.log('✅ Origin in allowed list');
-      return callback(null, true);
-    }
-    
-    // Check if origin matches any Vercel deployment URL pattern
-    if (origin.match(/https:\/\/.*\.vercel\.app$/)) {
-      console.log('✅ Vercel deployment URL - allowing');
-      return callback(null, true);
-    }
-    
-    // Allow localhost for development
-    if (origin.match(/^http:\/\/localhost(:\d+)?$/)) {
-      console.log('✅ Localhost - allowing');
-      return callback(null, true);
-    }
-    
-    console.log('❌ Origin not allowed:', origin);
-    callback(new Error('Not allowed by CORS'));
+    // Safely deny without throwing 500
+    callback(null, false);
   },
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
   credentials: true
@@ -73,43 +59,98 @@ const corsOptions = {
 
 const io = socketIo(server, {
   cors: corsOptions,
-  transports: ['websocket', 'polling']
+  transports: ['websocket', 'polling'],
+  maxHttpBufferSize: 1e6 // 1 MB max message size
 });
 
-// Connect to MongoDB database
-// This establishes connection to MongoDB for data persistence
+// Connect to MongoDB
 connectDB();
 
+// Security middleware
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false
+}));
 app.use(cors(corsOptions));
-app.use(express.json());
 
-// Mount authentication routes at /api/auth
-// Handles: /api/auth/register, /api/auth/login, /api/auth/me, etc.
-app.use('/api/auth', authRoutes);
+// Body parser with size limits
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: false, limit: '2mb' }));
 
-// Mount board routes at /api/boards
-// Handles: /api/boards (GET, POST), /api/boards/:id (GET, PUT, DELETE), etc.
+// Express 5 compatible NoSQL injection sanitization
+const sanitizeNoSQL = (obj) => {
+  if (!obj || typeof obj !== 'object') return;
+  for (const key of Object.keys(obj)) {
+    if (key.startsWith('$') || key.includes('.')) {
+      delete obj[key];
+    } else if (typeof obj[key] === 'object') {
+      sanitizeNoSQL(obj[key]);
+    }
+  }
+};
+
+app.use((req, res, next) => {
+  if (req.body) sanitizeNoSQL(req.body);
+  if (req.params) sanitizeNoSQL(req.params);
+  if (req.query) sanitizeNoSQL(req.query);
+  next();
+});
+
+// Global rate limiter (100 req/15min per IP)
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many requests, please try again later.' }
+});
+app.use(globalLimiter);
+
+// Stricter limiter for auth endpoints (prevent brute force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: 'Too many authentication attempts, please try again in 15 minutes.' }
+});
+
+// Mount routes
+app.use('/api/auth', authLimiter, authRoutes);
 app.use('/api/boards', boardRoutes);
 
-// Initialize Socket.IO event handlers for real-time collaboration
-// This sets up listeners for drawing, cursor movements, user presence, etc.
+// Initialize Socket.IO whiteboard events
 whiteboardEvents(io);
 
-// Health check endpoint to verify server is running
-// Used for monitoring and debugging purposes
+// Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ 
-    status: 'ok', // Server status
-    message: 'ColabCanvas server is running', // Confirmation message
-    timestamp: new Date().toISOString() // Current server time
+  res.json({
+    status: 'ok',
+    message: 'ColabCanvas server is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({ message: 'Route not found' });
+});
+
+// Global error handler — prevents stack traces leaking to client
+app.use((err, req, res, next) => {
+  const isDev = process.env.NODE_ENV !== 'production';
+  const status = err.status || (err.message?.includes('CORS') ? 403 : 500);
+  console.error('Unhandled error:', err.message);
+  res.status(status).json({
+    message: err.message || 'Internal server error',
+    ...(isDev && { stack: err.stack })
   });
 });
 
 const PORT = process.env.PORT || 5000;
 const HOST = '0.0.0.0';
 
-// In production/cloud: CLIENT_URL env var is set by hosting platform (e.g. Render)
-// In local dev without CLIENT_URL set: fall back to localhost (never the auto-detected LAN IP)
 global.CLIENT_URL = process.env.CLIENT_URL || 'http://localhost:3000';
 
 server.listen(PORT, HOST, () => {

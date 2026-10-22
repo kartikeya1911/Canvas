@@ -73,7 +73,7 @@ const BoardSchema = new mongoose.Schema({
   // Whether anonymous users can access the board
   allowAnonymous: {
     type: Boolean, // Data type is boolean
-    default: true // Allow anonymous access by default
+    default: false // Anonymous access requires explicit opt-in
   },
   
   // Default permission level for new collaborators
@@ -142,6 +142,7 @@ const BoardSchema = new mongoose.Schema({
 
 BoardSchema.index({ owner: 1 });
 BoardSchema.index({ 'collaborators.user': 1 });
+BoardSchema.index({ boardId: 1 }, { unique: true, sparse: true });
 
 BoardSchema.methods.getInviteUrl = function(baseUrl) {
   const url = baseUrl || global.CLIENT_URL || process.env.CLIENT_URL || 'http://localhost:3000';

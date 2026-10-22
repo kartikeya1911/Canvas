@@ -1,30 +1,44 @@
-// Import mongoose library for MongoDB object modeling
 const mongoose = require('mongoose');
 
 /**
- * Function to establish connection with MongoDB database
- * This is an asynchronous function that connects to MongoDB using connection string
- * @returns {Promise<void>}
+ * Connect to MongoDB (Atlas or Local) with production resiliency & retry logic
  */
-const connectDB = async () => {
+const connectDB = async (retryCount = 0) => {
+  const maxRetries = 5;
+  const mongoURI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/colabcanvas';
+
+  if (mongoURI.includes('<db_password>')) {
+    console.warn('\n⚠️  WARNING: Your MONGODB_URI still contains "<db_password>".');
+    console.warn('👉 Please replace "<db_password>" with your actual MongoDB Atlas password in server/.env or your deployment environment variables.\n');
+  }
+
   try {
-    // Attempt to connect to MongoDB using connection string from environment variable
-    // Falls back to local MongoDB if MONGODB_URI is not set
-    const conn = await mongoose.connect(
-      process.env.MONGODB_URI || 'mongodb://localhost:27017/colabcanvas'
-    );
+    const conn = await mongoose.connect(mongoURI, {
+      maxPoolSize: 10,
+      serverSelectionTimeoutMS: 10000,
+      socketTimeoutMS: 45000,
+    });
     
-    // Log successful connection with the database host information
     console.log(`📦 MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
-    // Log error if connection fails
-    console.error('❌ Error connecting to MongoDB:', error.message);
-    
-    // Exit the application with failure code if database connection fails
-    // This prevents the server from running without a database connection
-    process.exit(1);
+    console.error(`❌ MongoDB connection attempt ${retryCount + 1} failed:`, error.message);
+    if (retryCount < maxRetries) {
+      const waitTime = Math.min(1000 * Math.pow(2, retryCount), 10000);
+      console.log(`⏳ Retrying MongoDB connection in ${waitTime / 1000}s...`);
+      setTimeout(() => connectDB(retryCount + 1), waitTime);
+    } else {
+      console.error('❌ Failed to connect to MongoDB after multiple attempts.');
+      process.exit(1);
+    }
   }
 };
 
-// Export the connectDB function to be used in server.js
+mongoose.connection.on('disconnected', () => {
+  console.warn('⚠️ MongoDB disconnected. Attempting reconnection...');
+});
+
+mongoose.connection.on('reconnected', () => {
+  console.log('✅ MongoDB reconnected successfully');
+});
+
 module.exports = connectDB;

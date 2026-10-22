@@ -206,28 +206,54 @@ To make your app accessible from anywhere on the internet:
 - MongoDB Atlas (Free tier: 512MB)
 - DigitalOcean Managed MongoDB
 
-### Quick Deploy to Render + MongoDB Atlas:
+### ☁️ Production Cloud Deployment (MongoDB Atlas + Render + Vercel)
 
-1. **Create MongoDB Atlas Database:**
-   - Go to https://www.mongodb.com/cloud/atlas
-   - Create free cluster
-   - Get connection string
-   - Update `MONGODB_URI` in server `.env`
+#### Step 1: Configure MongoDB Atlas (Database)
+1. **Network Access (Critical)**:
+   - In your [MongoDB Atlas Dashboard](https://cloud.mongodb.com), go to **Security** > **Network Access**.
+   - Click **Add IP Address** and select **Allow Access from Anywhere (`0.0.0.0/0`)**.
+   - *Why?* Cloud hosts like Render, Railway, and Vercel use dynamic IP addresses. Without `0.0.0.0/0`, Atlas will block their connections.
+2. **Database User Credentials**:
+   - Go to **Security** > **Database Access**.
+   - Ensure your database user (e.g. `jainkartikeya9_db_user`) has read and write privileges (`readWriteAnyDatabase` or `Atlas admin`).
+   - If your password contains special characters (`@`, `:`, `/`, `?`, `#`, `&`), URL-encode them or use an alphanumeric password.
+3. **Connection String**:
+   - In Atlas, click **Connect** > **Drivers** (Node.js).
+   - Use the shard replica set URI with the database name `colabcanvas` specified before the `?`:
+   ```env
+   MONGODB_URI=mongodb://jainkartikeya9_db_user:<YOUR_PASSWORD>@ac-hnzmgrr-shard-00-00.4oi90hk.mongodb.net:27017,ac-hnzmgrr-shard-00-01.4oi90hk.mongodb.net:27017,ac-hnzmgrr-shard-00-02.4oi90hk.mongodb.net:27017/colabcanvas?ssl=true&replicaSet=atlas-93w0t2-shard-0&authSource=admin
+   ```
 
-2. **Deploy Backend to Render:**
-   - Go to https://render.com
-   - Connect your GitHub repository
-   - Create new Web Service
-   - Set build command: `cd server && npm install`
-   - Set start command: `cd server && npm start`
-   - Add environment variables from `server/.env`
+#### Step 2: Deploy Backend (Render / Railway)
+1. Push your repository to **GitHub**.
+2. Go to [Render.com](https://render.com) and click **New +** > **Web Service**.
+3. Select your GitHub repository.
+4. Configure service settings:
+   - **Root Directory**: `server` (or leave blank if using `render.yaml`)
+   - **Environment**: `Node`
+   - **Build Command**: `npm install`
+   - **Start Command**: `npm start`
+5. Under **Environment Variables**, add:
+   - `NODE_ENV`: `production`
+   - `PORT`: `5000`
+   - `JWT_SECRET`: `<any-strong-random-secret-key>`
+   - `JWT_EXPIRE`: `30d`
+   - `MONGODB_URI`: `<your-complete-atlas-uri-with-password>`
+   - `CLIENT_URL`: `https://your-frontend.vercel.app` (update after Step 3)
+6. Click **Create Web Service**. Once deployed, copy your backend URL (e.g., `https://colabcanvas-backend.onrender.com`).
 
-3. **Deploy Frontend to Vercel:**
-   - Go to https://vercel.com
-   - Connect your GitHub repository
-   - Set root directory: `client`
-   - Update `REACT_APP_BACKEND_URL` to your Render backend URL
-   - Deploy!
+#### Step 3: Deploy Frontend (Vercel)
+1. Go to [Vercel.com](https://vercel.com) and click **Add New** > **Project**.
+2. Import your GitHub repository.
+3. In **Project Settings**:
+   - **Framework Preset**: `Create React App`
+   - **Root Directory**: `client`
+4. Under **Environment Variables**, add:
+   - `REACT_APP_BACKEND_URL`: `https://your-backend-app.onrender.com`
+   - `REACT_APP_SOCKET_URL`: `https://your-backend-app.onrender.com`
+   - `REACT_APP_APP_NAME`: `ColabCanvas`
+5. Click **Deploy**.
+6. When deployment finishes, copy your frontend Vercel URL and add it to `CLIENT_URL` in your Render backend settings.
 
 ---
 

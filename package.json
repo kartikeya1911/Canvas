@@ -1,0 +1,10 @@
+{
+  "name": "colabcanvas-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "install:client": "npm install --prefix client",
+    "build": "npm install --prefix client && npm run build --prefix client",
+    "start": "npm start --prefix client"
+  }
+}
